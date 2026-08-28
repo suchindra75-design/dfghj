@@ -1,0 +1,6 @@
+{
+  "name": "EEG Scientific Data Workstation",
+  "description": "Scientific EEG workstation for ThingSpeak Channel 3469764 featuring real-time waveforms, downsampled historical analysis, tabular inspection, and verified CSV, PDF, and CSB exports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
