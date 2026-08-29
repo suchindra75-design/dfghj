@@ -874,7 +874,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                       </span>
                     </div>
                     <span className="text-[#64748B] text-[11px] block">
-                      Multi-page document: Page 1 overview + 5-min waveform windows
+                      Multi-page scientific report (~6–10 pages): Executive summary, stats, macro overview, stacked waveforms, research notes
                     </span>
                   </div>
                 </label>

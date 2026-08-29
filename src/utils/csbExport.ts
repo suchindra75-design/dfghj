@@ -100,25 +100,30 @@ export function generateCsbString(
  * Triggers a browser download of the CSB telemetry file with the required .csb extension.
  * Filename format: EEG_Channel_<channelId>_YYYY-MM-DD.csb
  */
-export function downloadCsbFile(
+export async function downloadCsbFile(
   feeds: ThingSpeakFeedItem[],
   channel?: ThingSpeakChannel,
   customSuffix?: string
-): void {
+): Promise<void> {
   const csbContent = generateCsbString(feeds, channel);
-  const blob = new Blob([csbContent], { type: 'application/octet-stream;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-
   const channelId = channel?.id ?? 3469764;
   const today = new Date().toISOString().split('T')[0];
   const suffix = customSuffix ? `_${customSuffix}` : '';
   const filename = `EEG_Channel_${channelId}_${today}${suffix}.csb`;
 
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  if (Capacitor.isNative) {
+    // Native Android export using Capacitor Filesystem and Share
+    await saveAndShareFile(csbContent, filename, 'application/octet-stream');
+  } else {
+    // Browser download fallback
+    const blob = new Blob([csbContent], { type: 'application/octet-stream;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
 }

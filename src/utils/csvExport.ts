@@ -1,4 +1,6 @@
 import { ThingSpeakFeedItem, ThingSpeakChannel } from '../types';
+import { Capacitor } from '@capacitor/core';
+import { saveAndShareFile } from './capacitorFile';
 
 /**
  * Escapes a field for RFC 4180 compliant CSV output.
@@ -57,19 +59,25 @@ export function generateCsvString(
 /**
  * Triggers a browser download of the CSV data.
  */
-export function downloadCsvFile(
+export async function downloadCsvFile(
   feeds: ThingSpeakFeedItem[],
   channel?: ThingSpeakChannel,
   customSuffix?: string
-): void {
+): Promise<void> {
   const csvContent = generateCsvString(feeds, channel);
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-
   const channelId = channel?.id ?? 3469764;
   const today = new Date().toISOString().split('T')[0];
   const suffix = customSuffix ? `_${customSuffix}` : '';
   const filename = `EEG_Channel_${channelId}_${today}${suffix}.csv`;
+  // Native handling for Capacitor
+  if (Capacitor.isNative) {
+    // Save and share via native file system
+    await saveAndShareFile(csvContent, filename, 'text/csv');
+    return;
+  }
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
 
   const link = document.createElement('a');
   link.href = url;

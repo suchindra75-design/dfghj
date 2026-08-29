@@ -1,9 +1,11 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import dotenv from 'dotenv';
-
-dotenv.config();
+// Load environment variables from .env only in development mode
+if (process.env.NODE_ENV !== 'production') {
+  const dotenv = require('dotenv');
+  dotenv.config();
+}
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const getChannelId = () => process.env.THINGSPEAK_CHANNEL_ID || '3469764';

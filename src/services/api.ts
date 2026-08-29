@@ -8,20 +8,7 @@ export interface FetchFeedsParams {
 }
 
 function getApiBaseUrl(): string {
-  const metaEnv = (import.meta as any)?.env;
-  if (metaEnv && metaEnv.VITE_API_BASE_URL) {
-    return String(metaEnv.VITE_API_BASE_URL).replace(/\/$/, '');
-  }
-  if (typeof window !== 'undefined') {
-    const isCapacitor =
-      window.location.protocol === 'capacitor:' ||
-      window.location.protocol === 'file:' ||
-      (window.location.hostname === 'localhost' && window.location.port !== '3000');
-    if (isCapacitor) {
-      return 'http://localhost:3000';
-    }
-  }
-  return '';
+  return (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 }
 
 export async function fetchChannelStatus(): Promise<StatusResponse> {

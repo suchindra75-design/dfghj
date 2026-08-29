@@ -224,10 +224,10 @@ export default function App() {
   const connectionStatus = error
     ? 'error'
     : isLoading && feeds.length === 0
-    ? 'loading'
-    : isPolling
-    ? 'connected'
-    : 'paused';
+      ? 'loading'
+      : isPolling
+        ? 'connected'
+        : 'paused';
 
   const handleSelectTab = (tab: ActiveTab) => {
     setActiveTab(tab);
