@@ -26,7 +26,7 @@ export interface TelemetryWindow {
  */
 export function partitionFeedsIntoWindows(
   feeds: ThingSpeakFeedItem[],
-  windowDurationSeconds: number = 300 // 5 minutes
+  windowDurationSeconds: number = 600 // 10-minute windows for readable density
 ): TelemetryWindow[] {
   if (!feeds || feeds.length === 0) return [];
   if (feeds.length === 1) {
@@ -47,8 +47,8 @@ export function partitionFeedsIntoWindows(
   const lastTime = new Date(feeds[feeds.length - 1].created_at).getTime();
   const totalSpanSec = Math.max(0, (lastTime - firstTime) / 1000);
 
-  // If total duration fits in a single window or is very small
-  if (totalSpanSec <= windowDurationSeconds || feeds.length <= 20) {
+  // If total duration fits in a single window, return one
+  if (totalSpanSec <= windowDurationSeconds) {
     return [
       {
         windowIndex: 1,
@@ -71,8 +71,8 @@ export function partitionFeedsIntoWindows(
     const itemTime = new Date(item.created_at).getTime();
     const elapsedInWindow = (itemTime - currentWindowStartMs) / 1000;
 
-    // Check if item belongs to current window (cap max 25 items per window for clarity)
-    if (elapsedInWindow < windowDurationSeconds && currentWindowFeeds.length < 25) {
+    // Pure time-boundary windowing — no sample count cap
+    if (elapsedInWindow < windowDurationSeconds) {
       currentWindowFeeds.push(item);
     } else {
       // Close current window
@@ -129,11 +129,16 @@ export function partitionFeedsIntoWindows(
 
 /**
  * High-resolution biomedical waveform renderer for PDF embedding.
- * - Dedicated Channel Label column (no label collision)
- * - Truthful, consistent Y-axis calibration bracket and values
- * - Real discrete telemetry coordinate markers (no false smoothing)
- * - Linear segment trace with missing-packet gap detection
- * - Edge-protected UTC timestamps
+ *
+ * Design principles:
+ * - 2400 × 900 px canvas → generous waveform area
+ * - Lean left pad (80px): channel ID + Y-axis numbers only
+ * - 6-division Y-axis grid with rounded tick values
+ * - Truthful linear trace with gap detection (no smoothing)
+ * - Discrete sample markers (circles) on every data point
+ * - Adaptive Y-scale: fits data tightly with 8% headroom
+ * - Collision-free X-axis ticks (measured, not hardcoded)
+ * - Zero baseline shown when signal crosses zero
  */
 function renderBiomedicalWaveformCanvas(
   feeds: ThingSpeakFeedItem[],
@@ -148,28 +153,29 @@ function renderBiomedicalWaveformCanvas(
     height?: number;
   } = {}
 ): string {
-  const width = options.width || 1800;
-  const height = options.height || 420;
+  const width  = options.width  || 2400;
+  const height = options.height || 900;
 
   const canvas = document.createElement('canvas');
-  canvas.width = width;
+  canvas.width  = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  // 1. Pure Clinical White Background
+  // ── Background ─────────────────────────────────────────────────────────────
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, width, height);
 
-  // 2. Responsive Layout Metrics
-  const padLeft = 240; // Dedicated for Channel Info & Y-Axis Scale
-  const padRight = 48;
-  const padTop = 48;
-  const padBottom = 54;
-  const plotW = width - padLeft - padRight;
-  const plotH = height - padTop - padBottom;
+  // ── Layout constants ────────────────────────────────────────────────────────
+  // Left column: just enough for Y-axis tick values + a colour stripe
+  const padLeft   = 92;   // Y-axis values + 8px gap
+  const padRight  = 32;
+  const padTop    = 52;   // room for top header text
+  const padBottom = 64;   // room for X-axis labels + cadence note
+  const plotW = width  - padLeft - padRight;
+  const plotH = height - padTop  - padBottom;
 
-  // Extract raw numerical telemetry points
+  // ── Extract raw telemetry points ────────────────────────────────────────────
   interface DataPoint {
     index: number;
     entryId: number;
@@ -195,281 +201,258 @@ function renderBiomedicalWaveformCanvas(
     }
   }
 
-  // Top Header Banner inside Canvas
+  // ── Header banner text ──────────────────────────────────────────────────────
+  // Colour accent strip at very top
+  ctx.fillStyle = traceColor;
+  ctx.fillRect(0, 0, width, 6);
+
   ctx.fillStyle = '#0F172A';
-  ctx.font = 'bold 22px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = 'bold 26px "JetBrains Mono", monospace, sans-serif';
   ctx.textAlign = 'left';
-  const displayTitle = `${label.toUpperCase()} [${unit}]`;
-  ctx.fillText(displayTitle, 24, 32);
+  ctx.fillText(`${label.toUpperCase()}  [${unit}]`, padLeft, 38);
 
   ctx.fillStyle = '#64748B';
-  ctx.font = '16px "JetBrains Mono", monospace, sans-serif';
+  ctx.font = '18px "JetBrains Mono", monospace, sans-serif';
   ctx.textAlign = 'right';
-  const subtitle = options.windowInfo || `Telemetry Field: ${fieldKey} • ${feeds.length} Records`;
-  ctx.fillText(subtitle, width - padRight, 32);
+  const subtitle = options.windowInfo || `Field: ${fieldKey}  •  ${feeds.length} records`;
+  ctx.fillText(subtitle, width - padRight, 38);
 
+  // ── No-data fallback ────────────────────────────────────────────────────────
   if (points.length === 0) {
     ctx.fillStyle = '#94A3B8';
-    ctx.font = '18px "JetBrains Mono", monospace, sans-serif';
+    ctx.font = '20px "JetBrains Mono", monospace, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(
-      'No numerical telemetry records available for this channel in this time window.',
-      width / 2,
-      padTop + plotH / 2
-    );
+    ctx.fillText('No numerical telemetry data available for this field.', width / 2, padTop + plotH / 2);
     return canvas.toDataURL('image/png');
   }
 
-  // Calculate truthful Y-axis scale bounds
-  let minY = Math.min(...points.map(p => p.value));
-  let maxY = Math.max(...points.map(p => p.value));
+  // ── Y-axis scale (adaptive, 6 divisions) ───────────────────────────────────
+  let rawMin = Math.min(...points.map(p => p.value));
+  let rawMax = Math.max(...points.map(p => p.value));
 
-  // If flat signal or identical values, add minimal physical margin
-  if (minY === maxY) {
-    minY -= 1.0;
-    maxY += 1.0;
-  } else {
-    // Add 10% headroom top and bottom for clear peak inspection
-    const rawSpan = maxY - minY;
-    minY -= rawSpan * 0.1;
-    maxY += rawSpan * 0.1;
+  if (rawMin === rawMax) {
+    rawMin -= 1.0;
+    rawMax += 1.0;
   }
 
-  // Ensure zero baseline is within view if close
-  if (minY > -2 && minY <= 0) minY = -2;
-  if (maxY < 2 && maxY >= 0) maxY = 2;
+  const rawSpan  = rawMax - rawMin;
+  const headroom = rawSpan * 0.08;  // 8% padding top & bottom
+  let minY = rawMin - headroom;
+  let maxY = rawMax + headroom;
 
+  // Round to a "nice" span for clean grid lines
+  const ySpanRaw = maxY - minY;
+  const yDivisions = 6;
+  // Pick tick step that is a nice power-of-10 multiple
+  const roughStep = ySpanRaw / yDivisions;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(Math.abs(roughStep) || 1)));
+  const niceSteps = [1, 2, 2.5, 5, 10];
+  let tickStep = magnitude;
+  for (const ns of niceSteps) {
+    const candidate = ns * magnitude;
+    if (candidate >= roughStep) { tickStep = candidate; break; }
+  }
+
+  // Snap min/max to grid
+  minY = Math.floor(minY / tickStep) * tickStep;
+  maxY = Math.ceil(maxY  / tickStep) * tickStep;
   const ySpan = maxY - minY;
+  const yTickValues: number[] = [];
+  for (let tv = minY; tv <= maxY + tickStep * 0.01; tv += tickStep) {
+    yTickValues.push(parseFloat(tv.toFixed(10))); // avoid floating point drift
+  }
 
-  // -------------------------------------------------------------------------
-  // ZONE 1: DEDICATED CHANNEL & Y-AXIS SCALE COLUMN [0 ... padLeft]
-  // -------------------------------------------------------------------------
-  // Vertical Column Divider Line
-  ctx.strokeStyle = '#E2E8F0';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(padLeft, padTop);
-  ctx.lineTo(padLeft, padTop + plotH);
-  ctx.stroke();
-
-  // Channel lead indicator pip
+  // ── Left Y-axis stripe ──────────────────────────────────────────────────────
   ctx.fillStyle = traceColor;
-  ctx.fillRect(24, padTop + 8, 5, plotH - 16);
+  ctx.fillRect(0, padTop, 6, plotH);
 
-  // Channel identification in left column
-  ctx.fillStyle = '#0F172A';
-  ctx.font = 'bold 18px "JetBrains Mono", monospace, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(fieldKey.toUpperCase(), 38, padTop + 28);
-
-  ctx.fillStyle = '#64748B';
-  ctx.font = '14px "JetBrains Mono", monospace, sans-serif';
-  ctx.fillText(`Unit: ${unit}`, 38, padTop + 50);
-
-  // Dynamic values summary in left column
-  const meanVal = points.reduce((acc, p) => acc + p.value, 0) / points.length;
-  ctx.fillText(`Mean: ${meanVal.toFixed(2)} ${unit}`, 38, padTop + 76);
-  ctx.fillText(`Min:  ${Math.min(...points.map(p => p.value)).toFixed(2)}`, 38, padTop + 98);
-  ctx.fillText(`Max:  ${Math.max(...points.map(p => p.value)).toFixed(2)}`, 38, padTop + 120);
-
-  // Calibration bracket in left column [padLeft - 70 ... padLeft - 10]
-  const bracketX = padLeft - 14;
-  ctx.strokeStyle = '#94A3B8';
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  // Top tick
-  ctx.moveTo(bracketX - 6, padTop);
-  ctx.lineTo(bracketX, padTop);
-  // Vertical bracket spine
-  ctx.lineTo(bracketX, padTop + plotH);
-  // Bottom tick
-  ctx.lineTo(bracketX - 6, padTop + plotH);
-  // Mid tick
-  ctx.moveTo(bracketX - 6, padTop + plotH / 2);
-  ctx.lineTo(bracketX, padTop + plotH / 2);
-  ctx.stroke();
-
-  // Y-axis tick values (Top, Mid, Bottom)
-  ctx.fillStyle = '#475569';
-  ctx.font = 'bold 15px "JetBrains Mono", monospace, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.fillText(`${maxY.toFixed(1)} ${unit}`, bracketX - 10, padTop + 14);
-  ctx.fillText(`${((minY + maxY) / 2).toFixed(1)}`, bracketX - 10, padTop + plotH / 2 + 5);
-  ctx.fillText(`${minY.toFixed(1)} ${unit}`, bracketX - 10, padTop + plotH - 4);
-
-  // -------------------------------------------------------------------------
-  // ZONE 2: WAVEFORM PLOTTING AREA [padLeft ... width - padRight]
-  // -------------------------------------------------------------------------
-  // Background horizontal grid lines
-  const gridSteps = 4;
-  for (let g = 0; g <= gridSteps; g++) {
-    const gy = padTop + (plotH * g) / gridSteps;
-    const isMid = g === 2;
-
-    ctx.strokeStyle = isMid ? '#CBD5E1' : '#F1F5F9';
-    ctx.lineWidth = isMid ? 1.2 : 1;
-    if (isMid) ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(padLeft, gy);
-    ctx.lineTo(width - padRight, gy);
-    ctx.stroke();
-    if (isMid) ctx.setLineDash([]);
-  }
-
-  // Zero-reference baseline if range spans zero
-  if (minY < 0 && maxY > 0) {
-    const zeroY = padTop + plotH - ((0 - minY) / ySpan) * plotH;
-    ctx.strokeStyle = '#94A3B8';
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(padLeft, zeroY);
-    ctx.lineTo(width - padRight, zeroY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = '#64748B';
-    ctx.font = '13px "JetBrains Mono", monospace, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('0 µV Baseline', padLeft + 8, zeroY - 4);
-  }
-
-  // Bounding box border
+  // ── Plot bounding box ───────────────────────────────────────────────────────
   ctx.strokeStyle = '#CBD5E1';
   ctx.lineWidth = 1.5;
   ctx.strokeRect(padLeft, padTop, plotW, plotH);
 
-  // Clip within waveform viewport
+  // ── Horizontal grid lines + Y-axis tick labels ─────────────────────────────
+  ctx.font = '17px "JetBrains Mono", monospace, sans-serif';
+
+  for (const tv of yTickValues) {
+    const gy = padTop + plotH - ((tv - minY) / ySpan) * plotH;
+    const isZero = Math.abs(tv) < tickStep * 0.01;
+
+    // Grid line
+    ctx.strokeStyle = isZero ? '#94A3B8' : '#F1F5F9';
+    ctx.lineWidth   = isZero ? 1.2 : 1.0;
+    if (isZero) ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padLeft,             gy);
+    ctx.lineTo(width - padRight,    gy);
+    ctx.stroke();
+    if (isZero) ctx.setLineDash([]);
+
+    // Y-axis tick mark
+    ctx.strokeStyle = '#94A3B8';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(padLeft - 6, gy);
+    ctx.lineTo(padLeft,     gy);
+    ctx.stroke();
+
+    // Y-axis label (right-aligned flush to axis)
+    const tvStr = Number.isInteger(tv) ? String(tv) : tv.toFixed(2);
+    ctx.fillStyle = '#475569';
+    ctx.textAlign = 'right';
+    ctx.fillText(tvStr, padLeft - 10, gy + 6);
+  }
+
+  // Y-axis unit annotation (rotated, drawn manually)
+  ctx.save();
+  ctx.translate(16, padTop + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = 'bold 16px "JetBrains Mono", monospace, sans-serif';
+  ctx.fillStyle = '#94A3B8';
+  ctx.textAlign = 'center';
+  ctx.fillText(unit, 0, 0);
+  ctx.restore();
+
+  // Zero reference line label (if range spans zero)
+  if (minY < 0 && maxY > 0) {
+    const zeroY = padTop + plotH - ((0 - minY) / ySpan) * plotH;
+    ctx.fillStyle = '#64748B';
+    ctx.font = '14px "JetBrains Mono", monospace, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('0', padLeft + 6, zeroY - 4);
+  }
+
+  // ── Waveform plot area (clipped) ────────────────────────────────────────────
   ctx.save();
   ctx.beginPath();
   ctx.rect(padLeft, padTop, plotW, plotH);
   ctx.clip();
 
-  // Draw crisp linear connection segments with gap detection
   const firstTimeMs = points[0].timeMs;
-  const lastTimeMs = points[points.length - 1].timeMs;
-  const timeSpanMs = Math.max(1, lastTimeMs - firstTimeMs);
+  const lastTimeMs  = points[points.length - 1].timeMs;
+  const timeSpanMs  = Math.max(1, lastTimeMs - firstTimeMs);
 
-  const getCanvasCoords = (pt: DataPoint) => {
-    let x: number;
-    if (options.isOverview || timeSpanMs <= 0) {
-      x = padLeft + (pt.index / Math.max(1, feeds.length - 1)) * plotW;
-    } else {
-      x = padLeft + ((pt.timeMs - firstTimeMs) / timeSpanMs) * plotW;
-    }
+  const getXY = (pt: DataPoint) => {
+    const x = options.isOverview || timeSpanMs <= 0
+      ? padLeft + (pt.index / Math.max(1, feeds.length - 1)) * plotW
+      : padLeft + ((pt.timeMs - firstTimeMs) / timeSpanMs) * plotW;
     const y = padTop + plotH - ((pt.value - minY) / ySpan) * plotH;
-    const clampedY = Math.max(padTop + 2, Math.min(padTop + plotH - 2, y));
-    return { x, y: clampedY };
+    return { x, y: Math.max(padTop + 1, Math.min(padTop + plotH - 1, y)) };
   };
 
-  // 1. Draw continuous linear lines (no fake smoothing / no fake spline waves)
+  // Trace line
   ctx.strokeStyle = traceColor;
-  ctx.lineWidth = 2.4;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
+  ctx.lineWidth   = 2.5;
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
   ctx.beginPath();
 
-  let isPenDown = false;
+  let penDown = false;
   for (let i = 0; i < points.length; i++) {
-    const pt = points[i];
-    const { x, y } = getCanvasCoords(pt);
-
-    // Gap detection: If gap between consecutive packets > 120s, lift pen
+    const { x, y } = getXY(points[i]);
     if (i > 0) {
-      const prevPt = points[i - 1];
-      const gapSec = (pt.timeMs - prevPt.timeMs) / 1000;
-      if (gapSec > 120) {
-        ctx.stroke();
-        ctx.beginPath();
-        isPenDown = false;
-      }
+      const gapSec = (points[i].timeMs - points[i - 1].timeMs) / 1000;
+      if (gapSec > 120) { ctx.stroke(); ctx.beginPath(); penDown = false; }
     }
-
-    if (!isPenDown) {
-      ctx.moveTo(x, y);
-      isPenDown = true;
-    } else {
-      ctx.lineTo(x, y);
-    }
+    if (!penDown) { ctx.moveTo(x, y); penDown = true; }
+    else ctx.lineTo(x, y);
   }
   ctx.stroke();
 
-  // 2. Draw discrete telemetry sample point markers
-  // (Shows researchers exactly where discrete real data points arrived)
-  const markerRadius = options.isOverview ? 2.5 : 4.5;
-  for (let i = 0; i < points.length; i++) {
-    const pt = points[i];
-    const { x, y } = getCanvasCoords(pt);
-
-    // Outer white rim
+  // Sample point markers
+  const dotR = options.isOverview ? 3 : 5;
+  for (const pt of points) {
+    const { x, y } = getXY(pt);
     ctx.fillStyle = '#FFFFFF';
     ctx.beginPath();
-    ctx.arc(x, y, markerRadius + 1.5, 0, Math.PI * 2);
+    ctx.arc(x, y, dotR + 2, 0, Math.PI * 2);
     ctx.fill();
-
-    // Inner filled telemetry dot
     ctx.fillStyle = traceColor;
     ctx.beginPath();
-    ctx.arc(x, y, markerRadius, 0, Math.PI * 2);
+    ctx.arc(x, y, dotR, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  ctx.restore(); // Restore clip
+  ctx.restore(); // undo clip
 
-  // -------------------------------------------------------------------------
-  // ZONE 3: X-AXIS TIMEBASE LABELS
-  // -------------------------------------------------------------------------
-  const tickCount = options.isOverview ? 5 : Math.min(6, Math.max(3, points.length));
-  for (let t = 0; t <= tickCount; t++) {
-    const tx = padLeft + (plotW * t) / tickCount;
+  // ── X-axis timestamps (collision-free, verified algorithm) ─────────────────
+  let tsFontSize = 16;
+  ctx.font = `bold ${tsFontSize}px "JetBrains Mono", monospace, sans-serif`;
+  const sampleLabel = '00:00:00 UTC';
+  let tsLabelW  = ctx.measureText(sampleLabel).width;
+  const tsMinGap     = 28;
+  const tsSidePad    = 14;
 
-    // Tick mark
-    ctx.strokeStyle = '#94A3B8';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(tx, padTop + plotH);
-    ctx.lineTo(tx, padTop + plotH + 6);
-    ctx.stroke();
+  let firstTx = padLeft + tsLabelW / 2 + tsSidePad;
+  let lastTx  = (width - padRight) - tsLabelW / 2 - tsSidePad;
 
-    // Time string
-    let timeLabel = '';
-    if (options.isOverview || timeSpanMs <= 0) {
-      const feedIdx = Math.min(feeds.length - 1, Math.floor((feeds.length * t) / tickCount));
-      timeLabel = feeds[feedIdx]?.created_at.substring(11, 19) + ' UTC';
-    } else {
-      const currentTickTimeMs = firstTimeMs + (timeSpanMs * t) / tickCount;
-      const d = new Date(currentTickTimeMs);
-      timeLabel = d.toISOString().substring(11, 19) + ' UTC';
-    }
+  if (lastTx < firstTx) {
+    tsFontSize = 12;
+    ctx.font = `bold ${tsFontSize}px "JetBrains Mono", monospace, sans-serif`;
+    tsLabelW  = ctx.measureText(sampleLabel).width;
+    firstTx   = padLeft + tsLabelW / 2 + tsSidePad;
+    lastTx    = (width - padRight) - tsLabelW / 2 - tsSidePad;
+  }
 
-    ctx.fillStyle = '#64748B';
-    ctx.font = 'bold 14px "JetBrains Mono", monospace, sans-serif';
-
-    // Edge protection: Left-align first, Right-align last, Center intermediate
-    if (t === 0) {
-      ctx.textAlign = 'left';
-      ctx.fillText(timeLabel, padLeft + 2, padTop + plotH + 24);
-    } else if (t === tickCount) {
-      ctx.textAlign = 'right';
-      ctx.fillText(timeLabel, width - padRight - 2, padTop + plotH + 24);
-    } else {
-      ctx.textAlign = 'center';
-      ctx.fillText(timeLabel, tx, padTop + plotH + 24);
+  let txPositions: number[] = [];
+  if (lastTx <= firstTx) {
+    txPositions = [padLeft + plotW / 2];
+  } else {
+    const avail = lastTx - firstTx;
+    let intervals = Math.floor(avail / (tsLabelW + tsMinGap));
+    const maxI = options.isOverview ? 8 : 10;
+    if (intervals > maxI) intervals = maxI;
+    if (intervals < 1)    intervals = 1;
+    for (let i = 0; i <= intervals; i++) {
+      txPositions.push(firstTx + (avail * i) / intervals);
     }
   }
 
-  // Bottom Timebase Annotation
+  for (const tx of txPositions) {
+    // Tick mark
+    ctx.strokeStyle = '#94A3B8';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(tx, padTop + plotH);
+    ctx.lineTo(tx, padTop + plotH + 8);
+    ctx.stroke();
+
+    // Time label
+    const normX = Math.max(0, Math.min(1, (tx - padLeft) / plotW));
+    let timeLabel = '';
+    if (options.isOverview || timeSpanMs <= 0) {
+      const fi = Math.min(feeds.length - 1, Math.floor(normX * (feeds.length - 1)));
+      timeLabel = feeds[fi]?.created_at.substring(11, 19) + ' UTC';
+    } else {
+      const d = new Date(firstTimeMs + timeSpanMs * normX);
+      timeLabel = d.toISOString().substring(11, 19) + ' UTC';
+    }
+    ctx.fillStyle  = '#334155';
+    ctx.font       = `bold ${tsFontSize}px "JetBrains Mono", monospace, sans-serif`;
+    ctx.textAlign  = 'center';
+    ctx.fillText(timeLabel, tx, padTop + plotH + 30);
+  }
+
+  // Date annotation below ticks
+  if (feeds.length > 0) {
+    const datePart = feeds[0].created_at.substring(0, 10);
+    ctx.fillStyle = '#94A3B8';
+    ctx.font      = `14px "JetBrains Mono", monospace, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText(`Date: ${datePart}`, padLeft, padTop + plotH + 52);
+  }
+
+  // Cadence note
   ctx.fillStyle = '#94A3B8';
-  ctx.font = '13px "JetBrains Mono", monospace, sans-serif';
+  ctx.font      = `14px "JetBrains Mono", monospace, sans-serif`;
   ctx.textAlign = 'right';
   const cadenceStr = options.isOverview
-    ? `Full Recording Overview • ${feeds.length} Packets Total`
-    : `Timebase: ~20s Cadence • ${points.length} Discrete Samples`;
-  ctx.fillText(cadenceStr, width - padRight, padTop + plotH + 46);
+    ? `Overview  •  ${feeds.length} packets`
+    : `${points.length} samples  •  ~20s cadence`;
+  ctx.fillText(cadenceStr, width - padRight, padTop + plotH + 52);
 
   return canvas.toDataURL('image/png');
 }
-
 /**
  * Generates a multi-page, publication-grade scientific engineering EEG report.
  * PDF Structure:
@@ -662,204 +645,151 @@ export async function generatePdfReport(
   y += 22;
 
   // SECTION 4: FULL-RECORDING MACRO OVERVIEW PLOTS
+  // Each overview plot gets its own full page for maximum readability
+  doc.addPage();
+  let oy = margin;
+  doc.setFillColor(37, 99, 235);
+  doc.rect(margin, oy, contentWidth, 2.5, 'F');
+  oy += 5;
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(30, 41, 59);
-  doc.text('4. FULL-RECORDING OVERVIEW PLOTS (MACRO ENVELOPE & BASELINE)', margin, y + 3);
-
-  y += 5;
-
-  // Overview Plot 1: Primary EEG Activity
-  const overviewImg1 = renderBiomedicalWaveformCanvas(
-    feeds,
-    'field1',
-    channel?.field1 || 'Primary EEG Activity',
-    'µV',
-    '#2563EB', // blue
-    {
-      isOverview: true,
-      windowInfo: `Full Session Overview • ${feeds.length} Records • Span: ${formatDuration(
-        recordingSec
-      )}`,
-      width: 1800,
-      height: 420,
-    }
-  );
-
-  if (overviewImg1) {
-    const imgHeight = 44;
-    doc.addImage(overviewImg1, 'PNG', margin, y, contentWidth, imgHeight);
-    y += imgHeight + 4;
-  }
-
-  // Overview Plot 2: EOG Activity
-  const overviewImg2 = renderBiomedicalWaveformCanvas(
-    feeds,
-    'field2',
-    channel?.field2 || 'EOG Activity',
-    'µV',
-    '#0D9488', // teal
-    {
-      isOverview: true,
-      windowInfo: `Full Session Overview • ${feeds.length} Records • Span: ${formatDuration(
-        recordingSec
-      )}`,
-      width: 1800,
-      height: 420,
-    }
-  );
-
-  if (overviewImg2) {
-    const imgHeight = 44;
-    doc.addImage(overviewImg2, 'PNG', margin, y, contentWidth, imgHeight);
-    y += imgHeight + 4;
-  }
-
-  // Overview Footer note explaining detailed window pages
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(7);
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text('FULL RECORDING OVERVIEW — PRIMARY EEG (FIELD 1)', margin, oy + 5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
-  doc.text(
-    'Note: Macro overview plots show session-wide envelope. Detailed, uncompressed time-window waveform plots follow on subsequent pages.',
-    margin,
-    pageHeight - 14
+  doc.text(`Session span: ${firstDate} → ${lastDate}  •  ${feeds.length} total records  •  Duration: ${formatDuration(recordingSec)}`, margin, oy + 11);
+  oy += 16;
+
+  const overviewImg1 = renderBiomedicalWaveformCanvas(
+    feeds, 'field1',
+    channel?.field1 || 'Primary EEG Activity', 'µV', '#2563EB',
+    {
+      isOverview: true,
+      windowInfo: `Full Session  •  ${feeds.length} records  •  ${formatDuration(recordingSec)}`,
+      width: 2400, height: 900,
+    }
   );
+  if (overviewImg1) {
+    const imgH = pageHeight - oy - margin - 14; // fill to footer
+    doc.addImage(overviewImg1, 'PNG', margin, oy, contentWidth, imgH);
+  }
+
+  // Overview page 2: EOG
+  doc.addPage();
+  oy = margin;
+  doc.setFillColor(13, 148, 136);
+  doc.rect(margin, oy, contentWidth, 2.5, 'F');
+  oy += 5;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text('FULL RECORDING OVERVIEW — EOG CHANNEL (FIELD 2)', margin, oy + 5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Session span: ${firstDate} → ${lastDate}  •  ${feeds.length} total records  •  Duration: ${formatDuration(recordingSec)}`, margin, oy + 11);
+  oy += 16;
+
+  const overviewImg2 = renderBiomedicalWaveformCanvas(
+    feeds, 'field2',
+    channel?.field2 || 'EOG Activity', 'µV', '#0D9488',
+    {
+      isOverview: true,
+      windowInfo: `Full Session  •  ${feeds.length} records  •  ${formatDuration(recordingSec)}`,
+      width: 2400, height: 900,
+    }
+  );
+  if (overviewImg2) {
+    const imgH = pageHeight - oy - margin - 14;
+    doc.addImage(overviewImg2, 'PNG', margin, oy, contentWidth, imgH);
+  }
+
+
+
 
   // =========================================================================
-  // SECTION 2: DETAILED WAVEFORM PAGES BY TIME WINDOW (5-Minute Windows)
+  // SECTION 2: DETAILED WAVEFORM PAGES — ONE CHANNEL PER PAGE PER WINDOW
   // =========================================================================
-  const windowDuration = options.windowDurationSeconds || 300; // 5 minutes
+  const windowDuration = options.windowDurationSeconds || 600; // 10 min windows
   const windows = partitionFeedsIntoWindows(feeds, windowDuration);
 
   for (const win of windows) {
+    const wStartStr = win.startTimestamp.replace('T', ' ').substring(0, 19) + ' UTC';
+    const wEndStr   = win.endTimestamp.replace('T', ' ').substring(0, 19) + ' UTC';
+    const winInfo   = `W${win.windowIndex}/${win.totalWindows}  •  ${wStartStr.substring(11,19)}–${wEndStr.substring(11,19)} UTC  •  ${win.sampleCount} samples`;
+
+    // ── PAGE A: Primary EEG (Field 1) ──────────────────────────────────────
     doc.addPage();
     let wy = margin;
 
-    // Header Banner
     doc.setFillColor(37, 99, 235);
-    doc.rect(margin, wy, contentWidth, 2.5, 'F');
+    doc.rect(margin, wy, contentWidth, 3, 'F');
     wy += 5;
 
-    // Page Title
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
-    doc.text(
-      `DETAILED WAVEFORM TELEMETRY — WINDOW ${win.windowIndex} OF ${win.totalWindows}`,
-      margin,
-      wy + 4
-    );
+    doc.text(`EEG — Window ${win.windowIndex} of ${win.totalWindows}  ·  ${channel?.field1 || 'Primary EEG (Field 1)'}`, margin, wy + 5);
 
-    // Window Metadata Subtitle
-    const wStartStr = win.startTimestamp.replace('T', ' ').substring(0, 19) + ' UTC';
-    const wEndStr = win.endTimestamp.replace('T', ' ').substring(11, 19) + ' UTC';
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(
-      `Interval: ${wStartStr} to ${wEndStr} • Duration: ${win.durationSeconds}s (${win.sampleCount} discrete samples)`,
-      margin,
-      wy + 9.5
+    doc.text(`${wStartStr}  →  ${wEndStr}  •  ${win.durationSeconds}s  •  ${win.sampleCount} discrete samples`, margin, wy + 11);
+    doc.text('Signal unit: µV  |  No artificial smoothing applied', pageWidth - margin, wy + 11, { align: 'right' });
+    wy += 16;
+
+    const imgF1 = renderBiomedicalWaveformCanvas(
+      win.feeds, 'field1',
+      channel?.field1 || 'Primary EEG Activity', 'µV', '#2563EB',
+      { isOverview: false, windowInfo: winInfo, width: 2400, height: 900 }
     );
-
-    doc.text(
-      `Scale: 5-Minute Window • Discrete Point Cadence ~20s`,
-      pageWidth - margin,
-      wy + 9.5,
-      { align: 'right' }
-    );
-
-    wy += 15;
-
-    // Detailed Plot 1: Primary EEG Activity (Field 1)
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(30, 41, 59);
-    doc.text(
-      `1. PRIMARY EEG VOLTAGE TRACE (FIELD 1) — WINDOW ${win.windowIndex}/${win.totalWindows}`,
-      margin,
-      wy + 3
-    );
-
-    wy += 5;
-
-    const detailedImg1 = renderBiomedicalWaveformCanvas(
-      win.feeds,
-      'field1',
-      channel?.field1 || 'Primary EEG Activity',
-      'µV',
-      '#2563EB', // crisp blue
-      {
-        isOverview: false,
-        windowInfo: `Window ${win.windowIndex}/${win.totalWindows} • ${wStartStr.substring(
-          11,
-          19
-        )}–${wEndStr} • ${win.sampleCount} Samples`,
-        width: 1800,
-        height: 440,
-      }
-    );
-
-    if (detailedImg1) {
-      const imgH = 72; // Spacious height
-      doc.addImage(detailedImg1, 'PNG', margin, wy, contentWidth, imgH);
-      wy += imgH + 8;
+    if (imgF1) {
+      const imgH = pageHeight - wy - margin - 14;
+      doc.addImage(imgF1, 'PNG', margin, wy, contentWidth, imgH);
     }
 
-    // Detailed Plot 2: EOG Activity (Field 2)
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(30, 41, 59);
-    doc.text(
-      `2. ELECTROOCULOGRAM / EOG TRACE (FIELD 2) — WINDOW ${win.windowIndex}/${win.totalWindows}`,
-      margin,
-      wy + 3
-    );
+    // ── PAGE B: EOG Channel (Field 2) ──────────────────────────────────────
+    doc.addPage();
+    wy = margin;
 
+    doc.setFillColor(13, 148, 136);
+    doc.rect(margin, wy, contentWidth, 3, 'F');
     wy += 5;
 
-    const detailedImg2 = renderBiomedicalWaveformCanvas(
-      win.feeds,
-      'field2',
-      channel?.field2 || 'EOG Activity',
-      'µV',
-      '#0D9488', // teal
-      {
-        isOverview: false,
-        windowInfo: `Window ${win.windowIndex}/${win.totalWindows} • ${wStartStr.substring(
-          11,
-          19
-        )}–${wEndStr} • ${win.sampleCount} Samples`,
-        width: 1800,
-        height: 440,
-      }
-    );
-
-    if (detailedImg2) {
-      const imgH = 72; // Spacious height
-      doc.addImage(detailedImg2, 'PNG', margin, wy, contentWidth, imgH);
-      wy += imgH + 8;
-    }
-
-    // Auxiliary Events Summary for this window if any events occurred
-    const winArtifacts = win.feeds.filter(f => f.field4 && parseFloat(f.field4) > 0).length;
-    const winEyeMoves = win.feeds.filter(f => f.field3 && parseFloat(f.field3) > 0).length;
-
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(margin, wy, contentWidth, 11, 1, 1, 'FD');
-
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(71, 85, 105);
-    doc.text('WINDOW EVENT AUDIT:', margin + 3, wy + 4.5);
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`EOG — Window ${win.windowIndex} of ${win.totalWindows}  ·  ${channel?.field2 || 'EOG Channel (Field 2)'}`, margin, wy + 5);
 
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${wStartStr}  →  ${wEndStr}  •  ${win.durationSeconds}s  •  ${win.sampleCount} discrete samples`, margin, wy + 11);
+    doc.text('Signal unit: µV  |  No artificial smoothing applied', pageWidth - margin, wy + 11, { align: 'right' });
+    wy += 16;
+
+    const imgF2 = renderBiomedicalWaveformCanvas(
+      win.feeds, 'field2',
+      channel?.field2 || 'EOG Activity', 'µV', '#0D9488',
+      { isOverview: false, windowInfo: winInfo, width: 2400, height: 900 }
+    );
+    if (imgF2) {
+      const imgH = pageHeight - wy - margin - 14;
+      doc.addImage(imgF2, 'PNG', margin, wy, contentWidth, imgH);
+    }
+
+    // Event summary in footer of EOG page
+    const winArtifacts = win.feeds.filter(f => f.field4 && parseFloat(f.field4) > 0).length;
+    const winEyeMoves  = win.feeds.filter(f => f.field3 && parseFloat(f.field3) > 0).length;
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.8);
+    doc.setTextColor(148, 163, 184);
     doc.text(
-      `Eye Movement Events (Field 3): ${winEyeMoves}  |  Artifact Flagged (Field 4): ${winArtifacts}  |  Data Continuity: 100% (No telemetry dropouts in this window)`,
-      margin + 3,
-      wy + 8.5
+      `Eye Movement Events: ${winEyeMoves}  |  Artifact Flags: ${winArtifacts}`,
+      margin, pageHeight - 14
     );
   }
 

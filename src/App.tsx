@@ -371,6 +371,7 @@ export default function App() {
                       feeds={feeds}
                       channels={channels}
                       onDownloadCsvRange={handleDownloadCsvRange}
+                      onDownloadCsbRange={handleDownloadCsbRange}
                       onToggleChannel={handleToggleChannel}
                     />
                   )}
@@ -420,7 +421,7 @@ export default function App() {
             <span className="text-[#CBD5E1]">&bull;</span>
             <span className="hidden sm:inline">Telemetry: <strong className="text-[#16A34A] font-semibold">100% Raw Unmodified</strong></span>
             <span className="hidden lg:inline text-[#CBD5E1]">&bull;</span>
-            <span className="hidden lg:inline">API Route: <strong className="text-[#2563EB] font-semibold">/api/thingspeak/feeds</strong></span>
+            <span className="hidden lg:inline">API Route: <strong className="text-[#2563EB] font-semibold">/api/eeg/feeds</strong></span>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">

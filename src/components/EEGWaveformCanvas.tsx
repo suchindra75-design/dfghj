@@ -674,34 +674,55 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
     ctx.lineTo(width - layout.padRight, layout.padTop + layout.plotH);
     ctx.stroke();
 
-    const timeTickCount = Math.max(2, Math.min(6, Math.floor(layout.plotW / (layout.isMobile ? 120 : 160))));
-    for (let t = 0; t <= timeTickCount; t++) {
-      const tx = layout.padLeft + (layout.plotW * t) / timeTickCount;
+    let fontSize = 9;
+    ctx.font = `${fontSize}px JetBrains Mono, monospace`;
+    const sampleStr = "00:00:00 UTC";
+    let labelW = ctx.measureText(sampleStr).width;
+    const minSpacing = 16;
+    const sidePadding = 8;
+    
+    let firstTx = layout.padLeft + labelW / 2 + sidePadding;
+    let lastTx = (width - layout.padRight) - labelW / 2 - sidePadding;
+    
+    if (lastTx < firstTx) {
+       fontSize = 7;
+       ctx.font = `${fontSize}px JetBrains Mono, monospace`;
+       labelW = ctx.measureText(sampleStr).width;
+       firstTx = layout.padLeft + labelW / 2 + sidePadding;
+       lastTx = (width - layout.padRight) - labelW / 2 - sidePadding;
+    }
+
+    let txPositions: number[] = [];
+    if (lastTx <= firstTx) {
+      txPositions = [ layout.padLeft + layout.plotW / 2 ];
+    } else {
+      const availableSpace = lastTx - firstTx;
+      let intervals = Math.floor(availableSpace / (labelW + minSpacing));
+      const maxAllowedIntervals = layout.isMobile ? 3 : 6;
+      if (intervals > maxAllowedIntervals) intervals = maxAllowedIntervals;
+      if (intervals < 1) intervals = 1;
+      
+      for (let i = 0; i <= intervals; i++) {
+        txPositions.push(firstTx + (availableSpace * i) / intervals);
+      }
+    }
+
+    for (const tx of txPositions) {
       ctx.strokeStyle = '#94A3B8';
       ctx.beginPath();
       ctx.moveTo(tx, layout.padTop + layout.plotH);
       ctx.lineTo(tx, layout.padTop + layout.plotH + 4);
       ctx.stroke();
 
-      const sampleIdx = Math.floor(
-        (t / timeTickCount) * (decimated.timestamps.length - 1)
-      );
+      const normalizedX = Math.max(0, Math.min(1, (tx - layout.padLeft) / layout.plotW));
+      const sampleIdx = Math.floor(normalizedX * (decimated.timestamps.length - 1));
       const timeStr = decimated.timestamps[sampleIdx];
+      
       if (timeStr) {
         ctx.fillStyle = '#64748B';
-        ctx.font = '9px JetBrains Mono, monospace';
-
-        // Prevent edge clipping: Left-align the first tick, Right-align the last tick!
-        if (t === 0) {
-          ctx.textAlign = 'left';
-          ctx.fillText(timeStr.substring(11, 19) + ' UTC', layout.padLeft + 2, layout.padTop + layout.plotH + 16);
-        } else if (t === timeTickCount) {
-          ctx.textAlign = 'right';
-          ctx.fillText(timeStr.substring(11, 19) + ' UTC', width - layout.padRight - 2, layout.padTop + layout.plotH + 16);
-        } else {
-          ctx.textAlign = 'center';
-          ctx.fillText(timeStr.substring(11, 19) + ' UTC', tx, layout.padTop + layout.plotH + 16);
-        }
+        ctx.font = `${fontSize}px JetBrains Mono, monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText(timeStr.substring(11, 19) + ' UTC', tx, layout.padTop + layout.plotH + 16);
       }
     }
 
