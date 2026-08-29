@@ -235,7 +235,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-[#0F172A] font-sans antialiased">
+    <div className="flex h-screen w-screen overflow-hidden bg-white text-[#0F172A] font-sans antialiased pt-safe pb-safe pl-safe pr-safe">
       {/* DESKTOP WORKSTATION SIDEBAR */}
       <div className="hidden md:flex shrink-0">
         <Sidebar
@@ -254,7 +254,7 @@ export default function App() {
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs"
             onClick={() => setIsMobileNavOpen(false)}
           />
-          <div className="relative w-64 bg-white h-full z-10 shadow-2xl flex flex-col">
+          <div className="relative w-64 bg-white h-full z-10 shadow-2xl flex flex-col pt-safe pb-safe">
             <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-[#2563EB]" />

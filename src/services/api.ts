@@ -7,15 +7,41 @@ export interface FetchFeedsParams {
   end?: string;
 }
 
-export async function fetchChannelStatus(): Promise<StatusResponse> {
-  const response = await fetch('/api/eeg/status', {
-    headers: { 'Accept': 'application/json' }
-  });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Failed to fetch status (HTTP ${response.status})`);
+function getApiBaseUrl(): string {
+  const metaEnv = (import.meta as any)?.env;
+  if (metaEnv && metaEnv.VITE_API_BASE_URL) {
+    return String(metaEnv.VITE_API_BASE_URL).replace(/\/$/, '');
   }
-  return response.json();
+  if (typeof window !== 'undefined') {
+    const isCapacitor =
+      window.location.protocol === 'capacitor:' ||
+      window.location.protocol === 'file:' ||
+      (window.location.hostname === 'localhost' && window.location.port !== '3000');
+    if (isCapacitor) {
+      return 'http://localhost:3000';
+    }
+  }
+  return '';
+}
+
+export async function fetchChannelStatus(): Promise<StatusResponse> {
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}/api/eeg/status`;
+  try {
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to fetch status from ${url} (HTTP ${response.status})`);
+    }
+    return response.json();
+  } catch (err: any) {
+    if (err?.message && !err.message.includes(url)) {
+      throw new Error(`Unable to connect to EEG Workstation at ${url}: ${err.message}`);
+    }
+    throw err;
+  }
 }
 
 export async function fetchAllFeeds(params: FetchFeedsParams = { all: true }): Promise<FeedsResponse> {
@@ -25,34 +51,53 @@ export async function fetchAllFeeds(params: FetchFeedsParams = { all: true }): P
   if (params.start) query.set('start', params.start);
   if (params.end) query.set('end', params.end);
 
-  const response = await fetch(`/api/eeg/feeds?${query.toString()}`, {
-    headers: { 'Accept': 'application/json' }
-  });
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}/api/eeg/feeds?${query.toString()}`;
+  try {
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Failed to fetch EEG data (HTTP ${response.status})`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to fetch EEG data from ${baseUrl} (HTTP ${response.status})`);
+    }
+
+    return response.json();
+  } catch (err: any) {
+    if (err?.message && !err.message.includes(baseUrl)) {
+      throw new Error(`Unable to connect to EEG Workstation backend at ${baseUrl}: ${err.message}`);
+    }
+    throw err;
   }
-
-  return response.json();
 }
 
 export async function fetchLatestFeed(): Promise<{ success: boolean; latest: ThingSpeakFeedItem; lastEntryId: number; channelUpdatedAt: string }> {
-  const response = await fetch('/api/eeg/latest', {
-    headers: { 'Accept': 'application/json' }
-  });
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}/api/eeg/latest`;
+  try {
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Failed to fetch latest feed (HTTP ${response.status})`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to fetch latest feed from ${url} (HTTP ${response.status})`);
+    }
+
+    return response.json();
+  } catch (err: any) {
+    if (err?.message && !err.message.includes(url)) {
+      throw new Error(`Unable to connect to latest feed at ${url}: ${err.message}`);
+    }
+    throw err;
   }
-
-  return response.json();
 }
 
 export function getServerCsvExportUrl(params: { start?: string; end?: string } = {}): string {
   const query = new URLSearchParams();
   if (params.start) query.set('start', params.start);
   if (params.end) query.set('end', params.end);
-  return `/api/eeg/csv?${query.toString()}`;
+  const baseUrl = getApiBaseUrl();
+  return `${baseUrl}/api/eeg/csv?${query.toString()}`;
 }

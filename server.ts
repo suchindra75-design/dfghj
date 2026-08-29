@@ -5,9 +5,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const PORT = 3000;
-const CHANNEL_ID = process.env.THINGSPEAK_CHANNEL_ID || '3469764';
-const READ_API_KEY = process.env.THINGSPEAK_READ_API_KEY || '';
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+const getChannelId = () => process.env.THINGSPEAK_CHANNEL_ID || '3469764';
+const getReadApiKey = () => process.env.THINGSPEAK_READ_API_KEY || '';
 
 interface ThingSpeakFeedItem {
   entry_id: number;
@@ -52,9 +52,11 @@ const CACHE_TTL_MS = 10000; // 10 seconds cache
  * Keeps READ_API_KEY strictly server-side.
  */
 function buildThingSpeakUrl(endpoint: string, params: Record<string, string | number> = {}): string {
-  const url = new URL(`https://api.thingspeak.com/channels/${CHANNEL_ID}/${endpoint}`);
-  if (READ_API_KEY) {
-    url.searchParams.set('api_key', READ_API_KEY);
+  const channelId = getChannelId();
+  const readApiKey = getReadApiKey();
+  const url = new URL(`https://api.thingspeak.com/channels/${channelId}/${endpoint}`);
+  if (readApiKey) {
+    url.searchParams.set('api_key', readApiKey);
   }
   for (const [key, val] of Object.entries(params)) {
     if (val !== undefined && val !== null && val !== '') {
@@ -77,9 +79,9 @@ async function fetchAllFeedsFromThingSpeak(): Promise<{ channel: ThingSpeakChann
   if (!resp.ok) {
     let msg = `ThingSpeak API returned HTTP ${resp.status} (${resp.statusText})`;
     if (resp.status === 404) {
-      msg = `Channel ${CHANNEL_ID} not found. Please verify the Channel ID.`;
+      msg = `Channel ${getChannelId()} not found. Please verify the Channel ID.`;
     } else if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
-      msg = `Channel ${CHANNEL_ID} is private. Please ensure a valid THINGSPEAK_READ_API_KEY is configured in environment settings.`;
+      msg = `Channel ${getChannelId()} is private. Please ensure a valid THINGSPEAK_READ_API_KEY is configured in environment settings.`;
     }
     throw new Error(msg);
   }
@@ -88,11 +90,11 @@ async function fetchAllFeedsFromThingSpeak(): Promise<{ channel: ThingSpeakChann
 
   // ThingSpeak returns -1 or empty object on authentication failure for private channels
   if (data === -1 || (typeof data === 'object' && data.error)) {
-    throw new Error(`ThingSpeak authentication rejected for Channel ${CHANNEL_ID}. Check THINGSPEAK_READ_API_KEY.`);
+    throw new Error(`ThingSpeak authentication rejected for Channel ${getChannelId()}. Check THINGSPEAK_READ_API_KEY.`);
   }
 
   if (!data.channel || !Array.isArray(data.feeds)) {
-    throw new Error(`Invalid response schema from ThingSpeak Channel ${CHANNEL_ID}`);
+    throw new Error(`Invalid response schema from ThingSpeak Channel ${getChannelId()}`);
   }
 
   const channelMeta: ThingSpeakChannelMeta = data.channel;
@@ -136,11 +138,22 @@ async function fetchAllFeedsFromThingSpeak(): Promise<{ channel: ThingSpeakChann
 async function startServer() {
   const app = express();
 
+  // CORS middleware for Capacitor native WebView & cross-origin mobile requests
+  app.use((req: Request, res: Response, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json());
 
   // Health endpoint
   app.get('/api/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok', channelId: CHANNEL_ID, hasApiKey: Boolean(READ_API_KEY) });
+    res.json({ status: 'ok', channelId: getChannelId(), hasApiKey: Boolean(getReadApiKey()) });
   });
 
   // Channel Status & Verification endpoint
@@ -152,8 +165,8 @@ async function startServer() {
       if (!resp.ok) {
         return res.status(resp.status).json({
           success: false,
-          channelId: Number(CHANNEL_ID),
-          apiKeyConfigured: Boolean(READ_API_KEY),
+          channelId: Number(getChannelId()),
+          apiKeyConfigured: Boolean(getReadApiKey()),
           isAccessible: false,
           error: `ThingSpeak HTTP ${resp.status}: ${resp.statusText}. Private channels require a valid THINGSPEAK_READ_API_KEY.`,
         });
@@ -163,8 +176,8 @@ async function startServer() {
       if (data === -1) {
         return res.status(403).json({
           success: false,
-          channelId: Number(CHANNEL_ID),
-          apiKeyConfigured: Boolean(READ_API_KEY),
+          channelId: Number(getChannelId()),
+          apiKeyConfigured: Boolean(getReadApiKey()),
           isAccessible: false,
           error: 'ThingSpeak returned authentication failure (-1). Please verify THINGSPEAK_READ_API_KEY.',
         });
@@ -181,19 +194,19 @@ async function startServer() {
 
       return res.json({
         success: true,
-        channelId: Number(CHANNEL_ID),
+        channelId: Number(getChannelId()),
         channelName: ch.name || 'EEG Channel',
         lastEntryId: ch.last_entry_id || 0,
         lastUpdatedAt: ch.updated_at || '',
-        apiKeyConfigured: Boolean(READ_API_KEY),
+        apiKeyConfigured: Boolean(getReadApiKey()),
         fieldNames,
         isAccessible: true,
       });
     } catch (err: any) {
       return res.status(500).json({
         success: false,
-        channelId: Number(CHANNEL_ID),
-        apiKeyConfigured: Boolean(READ_API_KEY),
+        channelId: Number(getChannelId()),
+        apiKeyConfigured: Boolean(getReadApiKey()),
         isAccessible: false,
         error: err?.message || 'Failed to connect to ThingSpeak API.',
       });
@@ -250,7 +263,7 @@ async function startServer() {
         feeds: filteredFeeds,
         totalCount: filteredFeeds.length,
         isComplete: true,
-        apiKeyConfigured: Boolean(READ_API_KEY),
+        apiKeyConfigured: Boolean(getReadApiKey()),
         fetchedAt: new Date(lastFeedsFetchTime).toISOString(),
       });
     } catch (err: any) {
@@ -258,7 +271,7 @@ async function startServer() {
       return res.status(502).json({
         success: false,
         error: err?.message || 'Unable to retrieve feeds from ThingSpeak.',
-        apiKeyConfigured: Boolean(READ_API_KEY),
+        apiKeyConfigured: Boolean(getReadApiKey()),
       });
     }
   });
@@ -311,7 +324,7 @@ async function startServer() {
       }
 
       const today = new Date().toISOString().split('T')[0];
-      const filename = `EEG_Channel_${CHANNEL_ID}_${today}.csv`;
+      const filename = `EEG_Channel_${getChannelId()}_${today}.csv`;
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -334,7 +347,7 @@ async function startServer() {
       const f6 = channel?.field6 ? `field6_${channel.field6.replace(/[^a-zA-Z0-9_]/g, '_')}` : 'field6';
 
       const lines: string[] = [];
-      lines.push(`# ThingSpeak Channel ID: ${channel?.id ?? CHANNEL_ID}`);
+      lines.push(`# ThingSpeak Channel ID: ${channel?.id ?? getChannelId()}`);
       lines.push(`# Channel Name: ${channel?.name ?? 'SLEEP MONITORING'}`);
       lines.push(`# Export Timestamp: ${new Date().toISOString()}`);
       lines.push(`# Total Samples: ${filteredFeeds.length}`);
