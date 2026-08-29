@@ -1,6 +1,6 @@
 import { ThingSpeakFeedItem, ThingSpeakChannel } from '../types';
 import { Capacitor } from '@capacitor/core';
-import { saveAndShareFile } from './capacitorFile';
+import { saveAndShareFile } from './capacitorFile.ts';
 
 /**
  * Escapes a field for RFC 4180 compliant CSV output.
@@ -70,7 +70,8 @@ export async function downloadCsvFile(
   const suffix = customSuffix ? `_${customSuffix}` : '';
   const filename = `EEG_Channel_${channelId}_${today}${suffix}.csv`;
   // Native handling for Capacitor
-  if (Capacitor.isNative) {
+  // Use platform check instead of deprecated isNative property
+if (Capacitor.getPlatform() !== 'web') {
     // Save and share via native file system
     await saveAndShareFile(csvContent, filename, 'text/csv');
     return;

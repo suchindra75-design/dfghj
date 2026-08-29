@@ -218,31 +218,32 @@ export function decimateWaveformForCanvas(
     const endIdx = Math.min(Math.floor((b + 1) * bucketSize), n);
     if (startIdx >= endIdx) continue;
 
-    // We track min and max index for primary EEG field (field1)
-    let minIdx = startIdx;
-    let maxIdx = startIdx;
-    let minVal = Infinity;
-    let maxVal = -Infinity;
+    for (const key of fieldKeys) {
+      let minIdx = startIdx;
+      let maxIdx = startIdx;
+      let minVal = Infinity;
+      let maxVal = -Infinity;
 
-    for (let i = startIdx; i < endIdx; i++) {
-      const raw = feeds[i].field1;
-      if (raw !== undefined && raw !== null && raw !== '') {
-        const val = parseFloat(raw);
-        if (!isNaN(val)) {
-          if (val < minVal) {
-            minVal = val;
-            minIdx = i;
-          }
-          if (val > maxVal) {
-            maxVal = val;
-            maxIdx = i;
+      for (let i = startIdx; i < endIdx; i++) {
+        const raw = feeds[i][key];
+        if (raw !== undefined && raw !== null && raw !== '') {
+          const val = parseFloat(raw);
+          if (!isNaN(val)) {
+            if (val < minVal) {
+              minVal = val;
+              minIdx = i;
+            }
+            if (val > maxVal) {
+              maxVal = val;
+              maxIdx = i;
+            }
           }
         }
       }
-    }
 
-    selectedIndices.add(minIdx);
-    selectedIndices.add(maxIdx);
+      if (minVal !== Infinity) selectedIndices.add(minIdx);
+      if (maxVal !== -Infinity) selectedIndices.add(maxIdx);
+    }
   }
 
   // Sort selected indices to preserve chronological order

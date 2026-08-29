@@ -1,4 +1,6 @@
 import { ThingSpeakFeedItem, ThingSpeakChannel } from '../types';
+import { saveAndShareFile } from './capacitorFile';
+import { Capacitor } from '@capacitor/core';
 
 /**
  * Escapes a field value for consistent machine-readable CSB output.
@@ -111,7 +113,8 @@ export async function downloadCsbFile(
   const suffix = customSuffix ? `_${customSuffix}` : '';
   const filename = `EEG_Channel_${channelId}_${today}${suffix}.csb`;
 
-  if (Capacitor.isNative) {
+  // Use platform check instead of deprecated isNative property
+if (Capacitor.getPlatform() !== 'web') {
     // Native Android export using Capacitor Filesystem and Share
     await saveAndShareFile(csbContent, filename, 'application/octet-stream');
   } else {

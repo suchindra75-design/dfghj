@@ -1,6 +1,8 @@
 import { jsPDF } from 'jspdf';
 import { Capacitor } from '@capacitor/core';
 import { saveAndShareFile } from './capacitorFile';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { ThingSpeakFeedItem, ThingSpeakChannel, ChannelStatistics, DerivedSamplingInfo } from '../types';
 import { formatDuration } from './eegCalculations';
 
@@ -28,7 +30,7 @@ export interface TelemetryWindow {
  */
 export function partitionFeedsIntoWindows(
   feeds: ThingSpeakFeedItem[],
-  targetWindowCount: number = 4
+  targetWindowCount?: number
 ): TelemetryWindow[] {
   if (!feeds || feeds.length === 0) return [];
   if (feeds.length === 1) {
@@ -45,15 +47,10 @@ export function partitionFeedsIntoWindows(
     ];
   }
 
-  // For very small sample counts, keep 1 or 2 windows
-  if (feeds.length <= 40) {
-    targetWindowCount = 1;
-  } else if (feeds.length <= 100) {
-    targetWindowCount = 2;
-  } else if (feeds.length <= 300) {
-    targetWindowCount = 3;
-  } else {
-    targetWindowCount = Math.min(5, Math.max(3, targetWindowCount));
+  // Dynamic window calculation for unconstrained, optimal scientific readability (~75–100 samples per window)
+  if (!targetWindowCount || targetWindowCount <= 0) {
+    const targetSamplesPerWindow = 80;
+    targetWindowCount = Math.max(1, Math.ceil(feeds.length / targetSamplesPerWindow));
   }
 
   const windows: TelemetryWindow[] = [];
@@ -116,10 +113,14 @@ function renderBiomedicalWaveformCanvas(
     width?: number;
     height?: number;
     showTitle?: boolean;
+    overrideYMin?: number;
+    overrideYMax?: number;
+    startTimestamp?: string;
+    endTimestamp?: string;
   } = {}
 ): string {
-  const width = options.width || 2400;
-  const height = options.height || 750;
+  const width = options.width || 2000;
+  const height = options.height || 650;
   const showTitle = options.showTitle !== undefined ? options.showTitle : true;
 
   const canvas = document.createElement('canvas');
@@ -133,9 +134,9 @@ function renderBiomedicalWaveformCanvas(
   ctx.fillRect(0, 0, width, height);
 
   // Layout pads
-  const padLeft = 100;
+  const padLeft = 110;
   const padRight = 36;
-  const padTop = showTitle ? 52 : 24;
+  const padTop = showTitle ? 54 : 24;
   const padBottom = 60;
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
@@ -166,21 +167,31 @@ function renderBiomedicalWaveformCanvas(
     }
   }
 
-  // Top Accent Strip & Header
+  // Top Accent Strip & Header Labeling
   if (showTitle) {
     ctx.fillStyle = traceColor;
     ctx.fillRect(0, 0, width, 6);
 
     ctx.fillStyle = '#0F172A';
-    ctx.font = 'bold 26px "JetBrains Mono", monospace, sans-serif';
+    ctx.font = 'bold 24px "JetBrains Mono", monospace, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`${label.toUpperCase()} [${unit}]`, padLeft, 38);
+    ctx.fillText(`${label.toUpperCase()} (${fieldKey}) [${unit}]`, padLeft, 34);
 
-    ctx.fillStyle = '#64748B';
-    ctx.font = '18px "JetBrains Mono", monospace, sans-serif';
+    ctx.fillStyle = '#475569';
+    ctx.font = '16px "JetBrains Mono", monospace, sans-serif';
     ctx.textAlign = 'right';
-    const subtitle = options.windowInfo || `Field: ${fieldKey} • ${feeds.length} records`;
-    ctx.fillText(subtitle, width - padRight, 38);
+
+    let headerRight = options.windowInfo;
+    if (!headerRight) {
+      const startStr = options.startTimestamp
+        ? options.startTimestamp.replace('T', ' ').substring(0, 19)
+        : (points.length > 0 ? points[0].timestamp.replace('T', ' ').substring(0, 19) : 'N/A');
+      const endStr = options.endTimestamp
+        ? options.endTimestamp.replace('T', ' ').substring(0, 19)
+        : (points.length > 0 ? points[points.length - 1].timestamp.replace('T', ' ').substring(0, 19) : 'N/A');
+      headerRight = `${startStr} -> ${endStr} UTC  •  n = ${points.length} samples`;
+    }
+    ctx.fillText(headerRight, width - padRight, 34);
   }
 
   // Fallback for no data
@@ -193,25 +204,36 @@ function renderBiomedicalWaveformCanvas(
       width / 2,
       padTop + plotH / 2
     );
-    return canvas.toDataURL('image/png');
+    const emptyUrl = canvas.toDataURL('image/jpeg', 0.94);
+    canvas.width = 1;
+    canvas.height = 1;
+    return emptyUrl;
   }
 
-  // Y-axis scaling (8% headroom)
-  let rawMin = Math.min(...points.map(p => p.value));
-  let rawMax = Math.max(...points.map(p => p.value));
+  // Y-axis scaling (Consistent global bounds or headroom auto-scaling)
+  let minY: number;
+  let maxY: number;
 
-  if (rawMin === rawMax) {
-    rawMin -= 1.0;
-    rawMax += 1.0;
+  if (options.overrideYMin !== undefined && options.overrideYMax !== undefined) {
+    minY = options.overrideYMin;
+    maxY = options.overrideYMax;
+  } else {
+    let rawMin = Math.min(...points.map(p => p.value));
+    let rawMax = Math.max(...points.map(p => p.value));
+
+    if (rawMin === rawMax) {
+      rawMin -= 1.0;
+      rawMax += 1.0;
+    }
+
+    const rawSpan = rawMax - rawMin;
+    const headroom = rawSpan * 0.08;
+    minY = rawMin - headroom;
+    maxY = rawMax + headroom;
   }
-
-  const rawSpan = rawMax - rawMin;
-  const headroom = rawSpan * 0.08;
-  let minY = rawMin - headroom;
-  let maxY = rawMax + headroom;
 
   const yDivisions = 5;
-  const roughStep = (maxY - minY) / yDivisions;
+  const roughStep = Math.max(0.0001, (maxY - minY) / yDivisions);
   const magnitude = Math.pow(10, Math.floor(Math.log10(Math.abs(roughStep) || 1)));
   const niceSteps = [1, 2, 2.5, 5, 10];
   let tickStep = magnitude;
@@ -223,8 +245,10 @@ function renderBiomedicalWaveformCanvas(
     }
   }
 
-  minY = Math.floor(minY / tickStep) * tickStep;
-  maxY = Math.ceil(maxY / tickStep) * tickStep;
+  if (options.overrideYMin === undefined) {
+    minY = Math.floor(minY / tickStep) * tickStep;
+    maxY = Math.ceil(maxY / tickStep) * tickStep;
+  }
   const ySpan = Math.max(0.0001, maxY - minY);
 
   const yTickValues: number[] = [];
@@ -232,7 +256,7 @@ function renderBiomedicalWaveformCanvas(
     yTickValues.push(parseFloat(tv.toFixed(6)));
   }
 
-  // Left Y-axis stripe
+  // Left Y-axis accent stripe
   ctx.fillStyle = traceColor;
   ctx.fillRect(0, padTop, 6, plotH);
 
@@ -240,6 +264,45 @@ function renderBiomedicalWaveformCanvas(
   ctx.strokeStyle = '#CBD5E1';
   ctx.lineWidth = 1.5;
   ctx.strokeRect(padLeft, padTop, plotW, plotH);
+
+  // Calculate X-axis Timestamps & Vertical Gridlines
+  const firstTimeMs = points[0].timeMs;
+  const lastTimeMs = points[points.length - 1].timeMs;
+  const timeSpanMs = Math.max(1, lastTimeMs - firstTimeMs);
+
+  const tsFontSize = 16;
+  ctx.font = `bold ${tsFontSize}px "JetBrains Mono", monospace, sans-serif`;
+  const sampleLabel = '00:00:00 UTC';
+  const tsLabelW = ctx.measureText(sampleLabel).width;
+  const tsMinGap = 28;
+  const tsSidePad = 14;
+
+  const firstTx = padLeft + tsLabelW / 2 + tsSidePad;
+  const lastTx = width - padRight - tsLabelW / 2 - tsSidePad;
+
+  let txPositions: number[] = [];
+  if (lastTx <= firstTx) {
+    txPositions = [padLeft + plotW / 2];
+  } else {
+    const avail = lastTx - firstTx;
+    let intervals = Math.floor(avail / (tsLabelW + tsMinGap));
+    const maxI = options.isOverview ? 7 : 8;
+    if (intervals > maxI) intervals = maxI;
+    if (intervals < 1) intervals = 1;
+    for (let i = 0; i <= intervals; i++) {
+      txPositions.push(firstTx + (avail * i) / intervals);
+    }
+  }
+
+  // Draw Vertical Gridlines (behind waveform)
+  for (const tx of txPositions) {
+    ctx.strokeStyle = '#F1F5F9';
+    ctx.lineWidth = 1.0;
+    ctx.beginPath();
+    ctx.moveTo(tx, padTop);
+    ctx.lineTo(tx, padTop + plotH);
+    ctx.stroke();
+  }
 
   // Horizontal Grid Lines & Y-axis Labels
   ctx.font = '17px "JetBrains Mono", monospace, sans-serif';
@@ -267,7 +330,7 @@ function renderBiomedicalWaveformCanvas(
     ctx.lineTo(padLeft, gy);
     ctx.stroke();
 
-    // Label
+    // Y-axis Label
     const tvStr = Number.isInteger(tv) ? String(tv) : tv.toFixed(2);
     ctx.fillStyle = '#475569';
     ctx.textAlign = 'right';
@@ -276,7 +339,7 @@ function renderBiomedicalWaveformCanvas(
 
   // Y-axis unit label
   ctx.save();
-  ctx.translate(20, padTop + plotH / 2);
+  ctx.translate(22, padTop + plotH / 2);
   ctx.rotate(-Math.PI / 2);
   ctx.font = 'bold 16px "JetBrains Mono", monospace, sans-serif';
   ctx.fillStyle = '#94A3B8';
@@ -289,10 +352,6 @@ function renderBiomedicalWaveformCanvas(
   ctx.beginPath();
   ctx.rect(padLeft, padTop, plotW, plotH);
   ctx.clip();
-
-  const firstTimeMs = points[0].timeMs;
-  const lastTimeMs = points[points.length - 1].timeMs;
-  const timeSpanMs = Math.max(1, lastTimeMs - firstTimeMs);
 
   const getXY = (pt: DataPoint) => {
     const x =
@@ -346,31 +405,7 @@ function renderBiomedicalWaveformCanvas(
 
   ctx.restore();
 
-  // X-axis Timestamps (Collision-free)
-  const tsFontSize = 16;
-  ctx.font = `bold ${tsFontSize}px "JetBrains Mono", monospace, sans-serif`;
-  const sampleLabel = '00:00:00 UTC';
-  const tsLabelW = ctx.measureText(sampleLabel).width;
-  const tsMinGap = 28;
-  const tsSidePad = 14;
-
-  const firstTx = padLeft + tsLabelW / 2 + tsSidePad;
-  const lastTx = width - padRight - tsLabelW / 2 - tsSidePad;
-
-  let txPositions: number[] = [];
-  if (lastTx <= firstTx) {
-    txPositions = [padLeft + plotW / 2];
-  } else {
-    const avail = lastTx - firstTx;
-    let intervals = Math.floor(avail / (tsLabelW + tsMinGap));
-    const maxI = options.isOverview ? 7 : 8;
-    if (intervals > maxI) intervals = maxI;
-    if (intervals < 1) intervals = 1;
-    for (let i = 0; i <= intervals; i++) {
-      txPositions.push(firstTx + (avail * i) / intervals);
-    }
-  }
-
+  // Draw X-axis Timestamps & Tick Marks
   for (const tx of txPositions) {
     ctx.strokeStyle = '#94A3B8';
     ctx.lineWidth = 1.5;
@@ -407,11 +442,15 @@ function renderBiomedicalWaveformCanvas(
   ctx.font = `14px "JetBrains Mono", monospace, sans-serif`;
   ctx.textAlign = 'right';
   const cadenceStr = options.isOverview
-    ? `Overview • ${feeds.length} records`
-    : `${points.length} samples • ~20s cadence`;
+    ? `Full Recording Overview • ${feeds.length} records`
+    : `Window Cadence: ~20s  •  n = ${points.length} samples`;
   ctx.fillText(cadenceStr, width - padRight, padTop + plotH + 50);
 
-  return canvas.toDataURL('image/png');
+  const resUrl = canvas.toDataURL('image/jpeg', 0.94);
+  // Immediate memory cleanup
+  canvas.width = 1;
+  canvas.height = 1;
+  return resUrl;
 }
 
 /**
@@ -431,11 +470,19 @@ export async function generatePdfReport(
   samplingInfo: DerivedSamplingInfo,
   options: PdfReportOptions = {}
 ): Promise<void> {
+  // DEBUG helper to show progress both in console and via alert (visible UI)
+  const debugLog = (msg: string) => {
+    console.log('[PDF DEBUG] ' + msg);
+    // Removed alert to avoid UI dialogs during processing
+  };
+  debugLog('generatePdfReport: entry');
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
     format: 'a4',
   });
+  debugLog('PDF document created');
+  // Duplicate jsPDF document creation removed
 
   const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
   const pageHeight = doc.internal.pageSize.getHeight(); // 297mm
@@ -466,8 +513,9 @@ export async function generatePdfReport(
   const eyeMoveCount = feeds.filter(f => f.field3 && parseFloat(f.field3) > 0).length;
   const totalReportedSamples = samplingInfo.totalSamplesReported ?? feeds.length;
 
-  // Partition recording into 4 representative windows
-  const windows = partitionFeedsIntoWindows(feeds, 4);
+  // Dynamically partition recording into unconstrained, highly readable time windows based on sample count and duration
+  const targetW = options.windowDurationSeconds && recordingSec > 0 ? Math.max(1, Math.ceil(recordingSec / options.windowDurationSeconds)) : undefined;
+  const windows = partitionFeedsIntoWindows(feeds, targetW);
 
   // =========================================================================
   // PAGE 1: COVER & RECORDING EXECUTIVE SUMMARY
@@ -540,6 +588,8 @@ export async function generatePdfReport(
 
   // Right Card: Recording Parameters
   const rLeft = margin + colWidth + 4;
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(226, 232, 240);
   doc.roundedRect(rLeft, y, colWidth, cardHeight, 1, 1, 'FD');
 
   doc.setFont('helvetica', 'bold');
@@ -824,7 +874,7 @@ export async function generatePdfReport(
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
   doc.text(
-    `Session span: ${firstDate} → ${lastDate} • ${feeds.length} total records • Duration: ${formatDuration(recordingSec)}`,
+    `Session span: ${firstDate} -> ${lastDate} • ${feeds.length} total records • Duration: ${formatDuration(recordingSec)}`,
     margin,
     oy + 11
   );
@@ -842,12 +892,12 @@ export async function generatePdfReport(
     {
       isOverview: true,
       windowInfo: `Full Session • ${feeds.length} records • ${formatDuration(recordingSec)}`,
-      width: 2400,
-      height: 700,
+      width: 1600,
+      height: 500,
     }
   );
   if (overviewImg1) {
-    doc.addImage(overviewImg1, 'PNG', margin, oy, contentWidth, plotH);
+    doc.addImage(overviewImg1, 'JPEG', margin, oy, contentWidth, plotH);
     oy += plotH + 5;
   }
 
@@ -861,12 +911,12 @@ export async function generatePdfReport(
     {
       isOverview: true,
       windowInfo: `Full Session • ${feeds.length} records • ${formatDuration(recordingSec)}`,
-      width: 2400,
-      height: 700,
+      width: 1600,
+      height: 500,
     }
   );
   if (overviewImg2) {
-    doc.addImage(overviewImg2, 'PNG', margin, oy, contentWidth, plotH);
+    doc.addImage(overviewImg2, 'JPEG', margin, oy, contentWidth, plotH);
     oy += plotH + 5;
   }
 
@@ -880,13 +930,57 @@ export async function generatePdfReport(
     {
       isOverview: true,
       windowInfo: `Auxiliary Event Stream • Total Events: ${eyeMoveCount}`,
-      width: 2400,
-      height: 700,
+      width: 1600,
+      height: 500,
     }
   );
   if (overviewImg3) {
-    doc.addImage(overviewImg3, 'PNG', margin, oy, contentWidth, plotH);
+    doc.addImage(overviewImg3, 'JPEG', margin, oy, contentWidth, plotH);
   }
+
+  // Compute uniform, global Y-axis bounds for Field 1 and Field 2 across the entire recording
+  const computeGlobalFieldBounds = (fieldKey: string): { yMin: number; yMax: number } => {
+    const vals: number[] = [];
+    for (const f of feeds) {
+      const raw = (f as any)[fieldKey];
+      if (raw !== undefined && raw !== null && raw !== '') {
+        const v = parseFloat(raw);
+        if (!isNaN(v)) vals.push(v);
+      }
+    }
+    if (vals.length === 0) return { yMin: -10, yMax: 10 };
+    vals.sort((a, b) => a - b);
+    const n = vals.length;
+    let rawMin = vals[Math.max(0, Math.floor(n * 0.02))];
+    let rawMax = vals[Math.min(n - 1, Math.floor(n * 0.98))];
+    if (rawMin === rawMax) {
+      rawMin -= 5;
+      rawMax += 5;
+    }
+    const span = rawMax - rawMin;
+    const headroom = span * 0.10;
+    const minY = rawMin - headroom;
+    const maxY = rawMax + headroom;
+
+    const yDivisions = 5;
+    const roughStep = Math.max(0.0001, (maxY - minY) / yDivisions);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(Math.abs(roughStep) || 1)));
+    const niceSteps = [1, 2, 2.5, 5, 10];
+    let tickStep = magnitude;
+    for (const ns of niceSteps) {
+      const candidate = ns * magnitude;
+      if (candidate >= roughStep) {
+        tickStep = candidate;
+        break;
+      }
+    }
+    const roundedMin = Math.floor(minY / tickStep) * tickStep;
+    const roundedMax = Math.ceil(maxY / tickStep) * tickStep;
+    return { yMin: roundedMin, yMax: roundedMax };
+  };
+
+  const globalF1Bounds = computeGlobalFieldBounds('field1');
+  const globalF2Bounds = computeGlobalFieldBounds('field2');
 
   // =========================================================================
   // PAGES 4..X: DETAILED WAVEFORM ANALYSIS (1 Page per Window, Field 1 & 2 Stacked)
@@ -897,7 +991,7 @@ export async function generatePdfReport(
 
     const wStartStr = win.startTimestamp.replace('T', ' ').substring(0, 19) + ' UTC';
     const wEndStr = win.endTimestamp.replace('T', ' ').substring(0, 19) + ' UTC';
-    const winInfo = `Window ${win.windowIndex}/${win.totalWindows} • ${wStartStr.substring(11, 19)}–${wEndStr.substring(11, 19)} UTC • ${win.sampleCount} samples`;
+    const winInfo = `Window ${win.windowIndex}/${win.totalWindows}  •  ${wStartStr.substring(11, 19)}–${wEndStr.substring(11, 19)} UTC  •  n = ${win.sampleCount} samples`;
 
     // Window Page Banner
     doc.setFillColor(37, 99, 235);
@@ -913,11 +1007,11 @@ export async function generatePdfReport(
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.text(
-      `${wStartStr} → ${wEndStr} • Duration: ${win.durationSeconds}s • ${win.sampleCount} discrete telemetry samples`,
+      `${wStartStr} -> ${wEndStr} (${win.durationSeconds}s, n = ${win.sampleCount})`,
       margin,
       wy + 11
     );
-    doc.text('Truthful telemetry plot (no artificial smoothing)', pageWidth - margin, wy + 11, {
+    doc.text('Truthful telemetry plot (no smoothing)', pageWidth - margin, wy + 11, {
       align: 'right',
     });
 
@@ -931,10 +1025,19 @@ export async function generatePdfReport(
       channel?.field1 || 'Primary EEG Activity',
       'µV',
       '#2563EB',
-      { isOverview: false, windowInfo: winInfo, width: 2400, height: 800 }
+      {
+        isOverview: false,
+        overrideYMin: globalF1Bounds.yMin,
+        overrideYMax: globalF1Bounds.yMax,
+        startTimestamp: win.startTimestamp,
+        endTimestamp: win.endTimestamp,
+        windowInfo: winInfo,
+        width: 1600,
+        height: 650,
+      }
     );
     if (imgF1) {
-      doc.addImage(imgF1, 'PNG', margin, wy, contentWidth, detailedPlotH);
+      doc.addImage(imgF1, 'JPEG', margin, wy, contentWidth, detailedPlotH);
       wy += detailedPlotH + 6;
     }
 
@@ -945,10 +1048,19 @@ export async function generatePdfReport(
       channel?.field2 || 'EOG Channel Activity',
       'µV',
       '#0D9488',
-      { isOverview: false, windowInfo: winInfo, width: 2400, height: 800 }
+      {
+        isOverview: false,
+        overrideYMin: globalF2Bounds.yMin,
+        overrideYMax: globalF2Bounds.yMax,
+        startTimestamp: win.startTimestamp,
+        endTimestamp: win.endTimestamp,
+        windowInfo: winInfo,
+        width: 1600,
+        height: 650,
+      }
     );
     if (imgF2) {
-      doc.addImage(imgF2, 'PNG', margin, wy, contentWidth, detailedPlotH);
+      doc.addImage(imgF2, 'JPEG', margin, wy, contentWidth, detailedPlotH);
       wy += detailedPlotH + 4;
     }
 
@@ -1077,12 +1189,141 @@ export async function generatePdfReport(
   // Save PDF
   const today = new Date().toISOString().split('T')[0];
   const filename = `EEG_Scientific_Report_Channel_${channelId}_${today}.pdf`;
-  if (Capacitor.isNative) {
-    // Generate PDF as base64 string
-    const pdfDataUrl = doc.output('datauristring');
-    const base64 = pdfDataUrl.split(',')[1];
-    await saveAndShareFile(base64, filename, 'application/pdf');
+
+  if (typeof (globalThis as any).__PDF_TEST_CALLBACK === 'function') {
+    (globalThis as any).__PDF_TEST_CALLBACK(doc);
+  }
+
+  if (Capacitor.getPlatform() !== 'web') {
+    // ── DIAGNOSTIC: per-operation error surfacing ── (TEMPORARY – remove after fix confirmed)
+    const directory = Directory.Cache;
+    const path = filename; // No subfolder needed
+    const mimeType = 'application/pdf';
+    let currentOp = 'init';
+    let currentChunk = -1;
+
+    const showNativeError = (op: string, err: unknown, extra?: string) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = (err as any)?.code !== undefined ? String((err as any).code) : 'n/a';
+      const detail = [
+        `❌ NATIVE PDF ERROR`,
+        `Operation : ${op}`,
+        `Filename  : ${filename}`,
+        `Directory : ${directory}`,
+        `Path      : ${path}`,
+        `MIME type : ${mimeType}`,
+        currentChunk >= 0 ? `Chunk     : ${currentChunk}` : null,
+        `Error code: ${code}`,
+        `Message   : ${msg}`,
+        extra ? `Extra     : ${extra}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      console.error('[PDF NATIVE ERROR]', detail);
+      debugLog(detail);
+      // No UI alert here; alerts are only shown for final write or share failures.
+    };
+
+    try {
+      const MAX_PDF_BYTES = 150 * 1024 * 1024; // 150 MB hard safety ceiling
+      const pdfArrayBuffer = doc.output('arraybuffer');
+      if (pdfArrayBuffer.byteLength > MAX_PDF_BYTES) {
+        const mb = (pdfArrayBuffer.byteLength / (1024 * 1024)).toFixed(1);
+        throw new Error(
+          `Export stopped: Generated PDF report size (${mb} MB) exceeds the 150 MB safety limit. Please select a narrower time window range.`
+        );
+      }
+      const uint8 = new Uint8Array(pdfArrayBuffer);
+      const chunkSize = 1024 * 1024;
+      const totalLength = uint8.length;
+      debugLog(`PDF size: ${totalLength} bytes, chunks: ${Math.ceil(totalLength / chunkSize)}, directory: ${directory}, path: ${path}`);
+
+      const sliceToBase64 = (arr: Uint8Array): string => {
+        let binary = '';
+        for (let i = 0; i < arr.length; i++) {
+          binary += String.fromCharCode(arr[i]);
+        }
+        return btoa(binary);
+      };
+
+      // ── writeFile (first chunk) ──
+      currentOp = 'writeFile';
+      currentChunk = 0;
+      const firstChunk = uint8.subarray(0, Math.min(chunkSize, totalLength));
+      try {
+        await Filesystem.writeFile({
+          path,
+          data: sliceToBase64(firstChunk),
+          directory,
+          // No encoding – data is base64
+        });
+        debugLog(`✅ writeFile OK – chunk 0, ${firstChunk.length} bytes`);
+      } catch (writeErr) {
+        // Final write failure – inform user
+        window.alert('Error writing file (first chunk): ' + writeErr);
+        console.error('writeFile error', writeErr);
+        return;      }
+
+      // ── appendFile (remaining chunks) ──
+      currentOp = 'appendFile';
+      for (let offset = chunkSize; offset < totalLength; offset += chunkSize) {
+        const chunkIdx = Math.floor(offset / chunkSize);
+        currentChunk = chunkIdx;
+        const end = Math.min(offset + chunkSize, totalLength);
+        const chunk = uint8.subarray(offset, end);
+        try {
+          await Filesystem.appendFile({
+            path,
+            data: sliceToBase64(chunk),
+            directory});
+          debugLog(`✅ appendFile OK – chunk ${chunkIdx}, ${chunk.length} bytes @ offset ${offset}`);
+        } catch (appendErr) {
+          // Chunk append error – log only, no UI alert
+          console.error('appendFile error', appendErr);
+          return;        }
+      }
+
+      // ── getUri ──
+      currentOp = 'getUri';
+      currentChunk = -1;
+      let uriResult: { uri: string };
+      try {
+        uriResult = await Filesystem.getUri({ path, directory });
+        debugLog(`✅ getUri OK – uri: ${uriResult.uri}`);
+      } catch (uriErr) {
+        // URI retrieval error – log only
+        console.error('getUri error', uriErr);
+        return;      }
+
+      // ── Share.share ──
+      currentOp = 'Share.share';
+      try {
+        await Share.share({
+          title: filename,
+          url: uriResult.uri,
+          dialogTitle: 'Share exported PDF report',
+        });
+        debugLog('✅ Native PDF save and share completed');
+      } catch (shareErr) {
+        // Final share failure – inform user
+        window.alert('Error sharing PDF: ' + shareErr);
+        console.error('Share.share error', shareErr);
+        return;      }
+    } catch (e) {
+      // Catch-all for unexpected errors (e.g. output('arraybuffer') itself)
+        console.error(`unexpected error during [${currentOp}]`, e);
+      }
+    return;
   } else {
+    debugLog('Web platform: using jsPDF save');
+    const MAX_PDF_BYTES = 150 * 1024 * 1024; // 150 MB hard safety ceiling
+    const pdfArrayBuffer = doc.output('arraybuffer');
+    if (pdfArrayBuffer.byteLength > MAX_PDF_BYTES) {
+      const mb = (pdfArrayBuffer.byteLength / (1024 * 1024)).toFixed(1);
+      throw new Error(
+        `Export stopped: Generated PDF report size (${mb} MB) exceeds the 150 MB safety limit. Please select a narrower time window range.`
+      );
+    }
     doc.save(filename);
   }
 }
