@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// Built APKs are named BRAINMATRIX-debug.apk / BRAINMATRIX-release.apk
+base {
+    archivesName = 'BRAINMATRIX'
+}
+
 android {
     namespace = "com.eeg.workstation"
     compileSdk = rootProject.ext.compileSdkVersion

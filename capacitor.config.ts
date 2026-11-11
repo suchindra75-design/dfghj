@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.eeg.workstation',
-  appName: 'Brainmatrix',
+  appName: 'BRAINMATRIX',
   webDir: 'dist',
   server: {
     androidScheme: 'http',
