@@ -209,6 +209,14 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
           onGainChange={setMonitorGain}
           onToggleChannel={onToggleChannel}
           timeDisplayMode={timeDisplayMode}
+          expectedIntervalMs={isBle ? 1000 / BLE_NOMINAL_HZ : undefined}
+          emptyMessage={
+            isBle
+              ? ble?.isStreaming
+                ? 'Connected — waiting for the first samples from the mask…'
+                : 'No Bluetooth data yet. Tap Scan, then Connect to stream from BioAmp_Sleep.'
+              : undefined
+          }
         />
       </div>
 

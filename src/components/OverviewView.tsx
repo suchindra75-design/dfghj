@@ -184,7 +184,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           <span className="text-[11px] font-mono text-[#64748B] uppercase tracking-wider block">
             Latest Reading
           </span>
-          <div className="text-xl font-bold font-mono text-[#0F172A] tracking-tight">
+          <div className="text-xl font-bold font-mono text-[#0F172A] tracking-tight whitespace-nowrap tabular-nums">
             {eegValNum !== null && !isNaN(eegValNum) ? (
               <AnimatedNumber value={eegValNum} decimals={2} suffix=" µV" />
             ) : (

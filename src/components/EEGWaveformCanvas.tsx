@@ -27,6 +27,10 @@ interface EEGWaveformCanvasProps {
   onGainChange?: (gain: number) => void;
   onToggleChannel?: (fieldKey: string) => void;
   timeDisplayMode?: TimeDisplayMode;
+  /** Expected sample spacing before data arrives (picks range presets, e.g. BLE ≈ 3.9 ms). */
+  expectedIntervalMs?: number;
+  /** Message shown when there is nothing to plot. */
+  emptyMessage?: string;
 }
 
 export interface CanvasLayoutMetrics {
@@ -132,6 +136,54 @@ function wrapTextLines(
   return lines.length > 0 ? lines : [text];
 }
 
+/** Compact axis numbers: 264575 → 264.6k, 1798.76 → 1798.8, 0.0123 → 0.012. */
+function formatAxisValue(v: number): string {
+  const a = Math.abs(v);
+  if (a >= 100_000) return `${(v / 1000).toFixed(0)}k`;
+  if (a >= 10_000) return `${(v / 1000).toFixed(1)}k`;
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 1) return v.toFixed(1);
+  return v.toPrecision(2);
+}
+
+/** Median spacing between consecutive samples (ms), or null with < 2 valid timestamps. */
+function medianIntervalMs(feeds: ThingSpeakFeedItem[]): number | null {
+  const n = Math.min(feeds.length, 400); // recent tail is representative and cheap
+  const tail = feeds.slice(-n);
+  const deltas: number[] = [];
+  for (let i = 1; i < tail.length; i++) {
+    const d = new Date(tail[i].created_at).getTime() - new Date(tail[i - 1].created_at).getTime();
+    if (Number.isFinite(d) && d > 0) deltas.push(d);
+  }
+  if (deltas.length === 0) return null;
+  deltas.sort((a, b) => a - b);
+  return deltas[Math.floor(deltas.length / 2)];
+}
+
+function formatInterval(ms: number): string {
+  if (ms < 1000) return `${(1000 / ms).toFixed(0)} Hz`;
+  if (ms < 120_000) return `${(ms / 1000).toFixed(1)}s/sample`;
+  return `${(ms / 60_000).toFixed(1)}min/sample`;
+}
+
+/** Time-window presets matched to the data rate (BLE ~256 Hz vs ThingSpeak ~seconds). */
+function rangePresetsFor(intervalMs: number | null): { label: string; ms: number }[] {
+  if (intervalMs !== null && intervalMs < 1000) {
+    return [
+      { label: '2s', ms: 2_000 },
+      { label: '5s', ms: 5_000 },
+      { label: '10s', ms: 10_000 },
+      { label: '30s', ms: 30_000 },
+    ];
+  }
+  return [
+    { label: '15m', ms: 15 * 60_000 },
+    { label: '1h', ms: 60 * 60_000 },
+    { label: '6h', ms: 6 * 60 * 60_000 },
+    { label: '24h', ms: 24 * 60 * 60_000 },
+  ];
+}
+
 export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
   feeds,
   channels,
@@ -142,6 +194,8 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
   onGainChange,
   onToggleChannel,
   timeDisplayMode = 'utc',
+  expectedIntervalMs,
+  emptyMessage,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -262,6 +316,12 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
   // Most recent feed for idle inspection display
   const latestFeed = feeds.length > 0 ? feeds[feeds.length - 1] : null;
 
+  const sampleIntervalMs = useMemo(() => medianIntervalMs(feeds), [feeds]);
+  const rangePresets = useMemo(
+    () => rangePresetsFor(sampleIntervalMs ?? expectedIntervalMs ?? null),
+    [sampleIntervalMs, expectedIntervalMs]
+  );
+
   // Draw on canvas with Clinical Grade Aesthetic and smooth channel alpha interpolation
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -295,11 +355,14 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
       ctx.fillStyle = '#64748B';
       ctx.font = '12px JetBrains Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(
-        'No active channels selected or no data points in this time window.',
-        width / 2,
-        layout.canvasH / 2
-      );
+      const message =
+        renderingChannels.length === 0
+          ? 'No channels selected. Use the Channels menu to show one.'
+          : emptyMessage ?? 'No data points in this time window.';
+      const lines = wrapTextLines(ctx, message, Math.max(160, width - 48), 4);
+      const lineH = 17;
+      const top = layout.canvasH / 2 - ((lines.length - 1) * lineH) / 2;
+      lines.forEach((line, i) => ctx.fillText(line, width / 2, top + i * lineH));
       return;
     }
 
@@ -394,7 +457,8 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
           cMax += 1;
         }
 
-        const span = (cMax - cMin) / currentGain;
+        // Value range represented by the bracket's half-height (8% headroom), shrunk by gain.
+        const halfRange = (((cMax - cMin) / 2) * 1.08) / currentGain;
         const midVal = (cMin + cMax) / 2;
 
         const isPrimaryEEG = ch.fieldKey === 'field1';
@@ -461,8 +525,9 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
         ctx.font = '9px JetBrains Mono, monospace';
         ctx.textAlign = 'right';
         const textRightX = layout.padLeft - 10;
-        ctx.fillText(cMax.toFixed(1), textRightX, trackTop + trackPlotPadY + 4);
-        ctx.fillText(cMin.toFixed(1), textRightX, trackBottom - trackPlotPadY - 1);
+        // Labels are the values at the bracket ends, so they stay exact at any gain.
+        ctx.fillText(formatAxisValue(midVal + halfRange), textRightX, trackTop + trackPlotPadY + 4);
+        ctx.fillText(formatAxisValue(midVal - halfRange), textRightX, trackBottom - trackPlotPadY - 1);
 
         // =========================================================================
         // ZONE 3: DEDICATED CLIPPED WAVEFORM AREA [padLeft ... width - padRight]
@@ -482,14 +547,14 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
 
         let hasStarted = false;
         let hoverPointY: number | null = null;
-        const amplitudeScale = (rawTrackH / 2 - trackPlotPadY) * 0.88;
+        const amplitudeScale = rawTrackH / 2 - trackPlotPadY; // pixels from mid to bracket end
 
         for (let i = 0; i < nPoints; i++) {
           const v = rawVals[i];
           if (v === null || isNaN(v)) continue;
 
           const x = layout.padLeft + (i / Math.max(1, nPoints - 1)) * layout.plotW;
-          const normalized = (v - midVal) / (span || 1);
+          const normalized = (v - midVal) / (halfRange || 1);
           const y = trackMid - normalized * amplitudeScale;
           const clampedY = Math.max(trackTop + 2, Math.min(trackBottom - 2, y));
 
@@ -548,7 +613,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
         gMax += 1;
       }
 
-      const gSpan = (gMax - gMin) / currentGain;
+      const gHalfRange = (((gMax - gMin) / 2) * 1.08) / currentGain;
       const gMid = (gMin + gMax) / 2;
 
       // Divider line separating Left column from Waveform
@@ -574,11 +639,11 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
         ctx.stroke();
         if (isCenter) ctx.setLineDash([]);
 
-        const gridVal = gMax - (gSpan * s) / gridSteps;
+        const gridVal = gMid + gHalfRange * (1 - (2 * s) / gridSteps);
         ctx.fillStyle = '#64748B';
         ctx.font = '9px JetBrains Mono, monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(gridVal.toFixed(1), layout.padLeft - 10, gy + 3);
+        ctx.fillText(formatAxisValue(gridVal), layout.padLeft - 10, gy + 3);
       }
 
       // Draw overlay waveforms clipped strictly within waveform area
@@ -612,7 +677,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
           if (v === null || isNaN(v)) continue;
 
           const x = layout.padLeft + (i / Math.max(1, nPoints - 1)) * layout.plotW;
-          const y = layout.padTop + layout.plotH / 2 - ((v - gMid) / (gSpan || 1)) * (layout.plotH * 0.44);
+          const y = layout.padTop + layout.plotH / 2 - ((v - gMid) / (gHalfRange || 1)) * (layout.plotH / 2);
           const clampedY = Math.max(layout.padTop + 2, Math.min(layout.padTop + layout.plotH - 2, y));
 
           if (!hasStarted) {
@@ -735,7 +800,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
       ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'right';
       ctx.fillText(
-        `Timebase: ~20s/sample • Window: ${visibleFeeds.length} samples`,
+        `Timebase: ${sampleIntervalMs ? formatInterval(sampleIntervalMs) : '—'} • Window: ${visibleFeeds.length} samples`,
         width - layout.padRight - 2,
         layout.padTop + layout.plotH + 30
       );
@@ -766,7 +831,12 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
       ctx.textAlign = 'center';
       ctx.fillText(hoverTime, badgeX + badgeW / 2, layout.padTop + layout.plotH + 12);
     }
-  }, [decimated, channels, mode, currentGain, height, hoverInfo, latestFeed]);
+  }, [decimated, channels, mode, currentGain, height, hoverInfo, timeDisplayMode, sampleIntervalMs, visibleFeeds.length, emptyMessage]);
+
+  // Effects below call the latest draw through a ref, so hovering (which changes
+  // `draw`) costs one redraw instead of restarting the fade loop and ResizeObserver.
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
 
   // Channel alpha transition loop (300ms smooth animation)
   useEffect(() => {
@@ -803,7 +873,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
         }
       });
 
-      draw();
+      drawRef.current();
 
       if (isStillAnimating && progress < 1) {
         animFrameRef.current = requestAnimationFrame(step);
@@ -815,7 +885,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [channels, draw]);
+  }, [channels]);
 
   // ResizeObserver for clean responsive redraw
   useEffect(() => {
@@ -828,7 +898,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
         setContainerWidth(entries[0].contentRect.width);
       }
       cancelAnimationFrame(animFrame);
-      animFrame = requestAnimationFrame(() => draw());
+      animFrame = requestAnimationFrame(() => drawRef.current());
     });
 
     observer.observe(container);
@@ -836,7 +906,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
       observer.disconnect();
       cancelAnimationFrame(animFrame);
     };
-  }, [draw]);
+  }, []);
 
   useEffect(() => {
     draw();
@@ -1076,12 +1146,22 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
     onGainChange?.(1);
   };
 
-  const setTimePreset = (samplesCount: number, presetKey: string) => {
+  /** Show the last `durationMs` of data (by timestamp, not sample count). */
+  const setTimePreset = (durationMs: number, presetKey: string) => {
     if (feeds.length === 0) return;
     isFullRangeRef.current = false;
     setActiveWindowPreset(presetKey);
     const end = feeds.length - 1;
-    const start = Math.max(0, end - samplesCount);
+    const cutoff = new Date(feeds[end].created_at).getTime() - durationMs;
+    // Binary search for the first sample at/after the cutoff (feeds are chronological).
+    let lo = 0;
+    let hi = end;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (new Date(feeds[mid].created_at).getTime() < cutoff) lo = mid + 1;
+      else hi = mid;
+    }
+    const start = Math.min(lo, Math.max(0, end - 1)); // always show at least 2 samples
     setViewRange({ startIdx: start, endIdx: end });
   };
 
@@ -1228,17 +1308,13 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[#64748B] text-[10px] uppercase font-semibold">RANGE:</span>
             <div className="flex rounded bg-white p-0.5 border border-[#CBD5E1] shadow-2xs">
-              {[
-                { label: '30s', samples: 30, key: '30s' },
-                { label: '2m', samples: 60, key: '2m' },
-                { label: '5m', samples: 150, key: '5m' },
-                { label: '15m', samples: 450, key: '15m' },
-              ].map(p => (
+              {rangePresets.map(p => (
                 <button
-                  key={p.key}
-                  onClick={() => setTimePreset(p.samples, p.key)}
+                  key={p.label}
+                  onClick={() => setTimePreset(p.ms, p.label)}
+                  title={`Show the last ${p.label} of data`}
                   className={`px-2 py-0.5 rounded text-[11px] transition-all duration-150 active:scale-95 ${
-                    activeWindowPreset === p.key
+                    activeWindowPreset === p.label
                       ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
                       : 'text-[#475569] hover:text-[#0F172A]'
                   }`}
@@ -1360,9 +1436,9 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
                   className="w-1.5 h-1.5 rounded-full"
                   style={{ backgroundColor: isPrimary ? '#0F172A' : ch.color }}
                 />
-                <span className="text-[#64748B]">{ch.label.substring(0, 8)}:</span>
+                <span className="text-[#64748B] whitespace-nowrap" title={ch.description}>{ch.label}:</span>
                 <span
-                  className={`font-semibold ${
+                  className={`font-semibold whitespace-nowrap tabular-nums ${
                     isPrimary ? 'text-[#0F172A]' : 'text-[#334155]'
                   }`}
                 >

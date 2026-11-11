@@ -107,6 +107,8 @@ export default function App() {
   const [isPolling, setIsPolling] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean>(false);
+  /** False when the backend truncated history at its record cap. */
+  const [historyComplete, setHistoryComplete] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
 
@@ -154,6 +156,7 @@ export default function App() {
       }
 
       setApiKeyConfigured(Boolean(data.apiKeyConfigured));
+      setHistoryComplete(data.isComplete !== false);
     } catch (err: any) {
       console.error('Failed to load ThingSpeak feeds:', err);
       setError(err?.message || 'Failed to connect to ThingSpeak Channel 3469764.');
@@ -256,6 +259,11 @@ export default function App() {
     },
     [channel]
   );
+
+  const dataSourceLabel =
+    dataSource === 'bluetooth'
+      ? `Bluetooth (${ble.status.state === 'streaming' ? `~${ble.status.receivedHz.toFixed(0)} Hz` : ble.status.state})`
+      : null;
 
   const connectionStatus = error
     ? 'error'
@@ -465,18 +473,32 @@ export default function App() {
 
         {/* COMPACT WORKSTATION STATUS FOOTER (Hidden on mobile to prioritize screen space) */}
         <footer className="hidden md:flex h-8 bg-[#F8FAFC] border-t border-[#E2E8F0] px-4 md:px-6 items-center justify-between text-[11px] font-mono text-[#64748B] shrink-0 select-none">
-          <div className="flex items-center gap-3 truncate">
-            <span>ThingSpeak Channel ID: <strong className="text-[#0F172A] font-semibold">3469764</strong></span>
+          <div className="flex items-center gap-3 min-w-0 overflow-hidden whitespace-nowrap">
+            <span>
+              ThingSpeak Channel:{' '}
+              <strong className="text-[#0F172A] font-semibold">{channel?.id ?? '—'}</strong>
+            </span>
             <span className="text-[#CBD5E1]">&bull;</span>
-            <span className="hidden sm:inline">Telemetry: <strong className="text-[#16A34A] font-semibold">100% Raw Unmodified</strong></span>
-            <span className="hidden lg:inline text-[#CBD5E1]">&bull;</span>
-            <span className="hidden lg:inline">API Route: <strong className="text-[#2563EB] font-semibold">/api/eeg/feeds</strong></span>
+            <span>
+              Records: <strong className="text-[#0F172A] font-semibold">{feeds.length.toLocaleString()}</strong>
+              {!historyComplete && (
+                <span className="text-[#D97706]" title="The backend returned only the most recent records (MAX_RECORDS).">
+                  {' '}(most recent only)
+                </span>
+              )}
+            </span>
+            {dataSourceLabel && (
+              <>
+                <span className="hidden lg:inline text-[#CBD5E1]">&bull;</span>
+                <span className="hidden lg:inline">
+                  Live source: <strong className="text-[#2563EB] font-semibold">{dataSourceLabel}</strong>
+                </span>
+              </>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <span>Scientific Specification</span>
-            <span className="text-[#CBD5E1]">&bull;</span>
-            <span className="text-[#94A3B8]">v2.4</span>
+          <div className="flex items-center gap-2 shrink-0 pl-3">
+            <span>Research use only &mdash; not for diagnosis</span>
           </div>
         </footer>
       </div>

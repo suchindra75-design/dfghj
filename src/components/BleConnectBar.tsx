@@ -1,7 +1,7 @@
 /**
  * BleConnectBar — Bluetooth connection controls for BioAmp_Sleep (Phase 1).
  *
- * Visually consistent with the BrianMatrix monitor control bars:
+ * Visually consistent with the Brainmatrix monitor control bars:
  * compact mono, slate/blue palette. Monitor-only; does not touch the
  * ThingSpeak path.
  */

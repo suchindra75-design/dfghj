@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">BrianMatrix</string>
-    <string name="title_activity_main">BrianMatrix</string>
+    <string name="app_name">Brainmatrix</string>
+    <string name="title_activity_main">Brainmatrix</string>
     <string name="package_name">com.eeg.workstation</string>
     <string name="custom_url_scheme">com.eeg.workstation</string>
 </resources>
