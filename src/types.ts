@@ -86,6 +86,11 @@ export interface StatusResponse {
 
 export type ActiveTab = 'overview' | 'monitor' | 'historical' | 'table' | 'export' | 'settings';
 
+export type TimeDisplayMode = 'utc' | 'local';
+
+/** Phase 1 BLE: live data source selector. Default is always 'thingspeak'. */
+export type DataSourceMode = 'thingspeak' | 'bluetooth';
+
 export interface DataFilterOptions {
   searchQuery: string;
   startDate: string; // ISO string or YYYY-MM-DDTHH:mm

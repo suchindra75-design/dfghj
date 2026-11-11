@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { ThingSpeakFeedItem, ChannelFieldDefinition, ThingSpeakChannel } from '../types';
+import { ThingSpeakFeedItem, ChannelFieldDefinition, ThingSpeakChannel, TimeDisplayMode } from '../types';
 import { formatDateTime } from '../utils/eegCalculations';
+import { localDatetimeToUtcIso } from '../utils/timezoneUtils';
 import {
   Search,
   ArrowUpDown,
@@ -29,6 +30,7 @@ interface DataTableProps {
   channels: ChannelFieldDefinition[];
   onDownloadCsvFiltered: (filtered: ThingSpeakFeedItem[], label: string) => void;
   onDownloadCsbFiltered?: (filtered: ThingSpeakFeedItem[], label: string) => void;
+  timeDisplayMode?: TimeDisplayMode;
 }
 
 type SortField =
@@ -53,6 +55,7 @@ export const DataTable: React.FC<DataTableProps> = ({
   channels,
   onDownloadCsvFiltered,
   onDownloadCsbFiltered,
+  timeDisplayMode = 'utc',
 }) => {
   // Search & Sorting
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,15 +102,17 @@ export const DataTable: React.FC<DataTableProps> = ({
       });
     }
 
-    // 2. Custom Date/Time Range
+    // 2. Custom Date/Time Range (convert local datetime-local input to explicit UTC ISO)
     if (customStart) {
-      const startTime = new Date(customStart).getTime();
+      const startUtcIso = localDatetimeToUtcIso(customStart);
+      const startTime = new Date(startUtcIso).getTime();
       if (!isNaN(startTime)) {
         result = result.filter(item => new Date(item.created_at).getTime() >= startTime);
       }
     }
     if (customEnd) {
-      const endTime = new Date(customEnd).getTime();
+      const endUtcIso = localDatetimeToUtcIso(customEnd);
+      const endTime = new Date(endUtcIso).getTime();
       if (!isNaN(endTime)) {
         result = result.filter(item => new Date(item.created_at).getTime() <= endTime);
       }
@@ -522,7 +527,7 @@ export const DataTable: React.FC<DataTableProps> = ({
               >
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#64748B]" />
-                  <span>Timestamp (UTC)</span>
+                  <span>{timeDisplayMode === 'local' ? 'Timestamp (Local)' : 'Timestamp (UTC)'}</span>
                   {renderSortIcon('created_at')}
                 </div>
               </th>
@@ -627,13 +632,9 @@ export const DataTable: React.FC<DataTableProps> = ({
 
                     {/* Timestamp: Highly readable date and time */}
                     <td className="py-2 px-3.5 text-[#334155] whitespace-nowrap">
-                      <span className="text-[#64748B] text-[11px]">
-                        {item.created_at.substring(0, 10)}{' '}
+                      <span className="text-[#0F172A] font-semibold text-xs font-mono">
+                        {formatDateTime(item.created_at, timeDisplayMode)}
                       </span>
-                      <span className="text-[#0F172A] font-semibold text-xs">
-                        {item.created_at.substring(11, 19)}
-                      </span>
-                      <span className="text-[#94A3B8] text-[10px] ml-1">UTC</span>
                     </td>
 
                     {/* EEG Activity (Right aligned numerical) */}

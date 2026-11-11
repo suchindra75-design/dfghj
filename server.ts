@@ -1,9 +1,9 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import dotenv from 'dotenv';
 // Load environment variables from .env only in development mode
 if (process.env.NODE_ENV !== 'production') {
-  const dotenv = require('dotenv');
   dotenv.config();
 }
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ThingSpeakChannel, ChannelFieldDefinition } from '../types';
+import { ThingSpeakChannel, ChannelFieldDefinition, TimeDisplayMode } from '../types';
 import {
   Settings,
   Sliders,
@@ -20,6 +20,8 @@ interface SettingsViewProps {
   onToggleChannel: (fieldKey: string) => void;
   apiKeyConfigured: boolean;
   totalRecords: number;
+  timeDisplayMode?: TimeDisplayMode;
+  setTimeDisplayMode?: (mode: TimeDisplayMode) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -28,8 +30,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onToggleChannel,
   apiKeyConfigured,
   totalRecords,
+  timeDisplayMode = 'utc',
+  setTimeDisplayMode,
 }) => {
-  const [timeDisplayMode, setTimeDisplayMode] = useState<'utc' | 'local'>('utc');
   const [voltageUnit, setVoltageUnit] = useState<'uV' | 'mV'>('uV');
   const [cacheRetention, setCacheRetention] = useState<string>('all');
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
@@ -148,7 +151,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </label>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setTimeDisplayMode('utc')}
+                      onClick={() => setTimeDisplayMode?.('utc')}
                       className={`flex-1 py-1.5 px-3 rounded border text-xs font-medium transition-colors ${
                         timeDisplayMode === 'utc'
                           ? 'bg-[#2563EB] border-[#2563EB] text-white font-semibold shadow-2xs'
@@ -158,7 +161,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       UTC (Coordinated Universal Time)
                     </button>
                     <button
-                      onClick={() => setTimeDisplayMode('local')}
+                      onClick={() => setTimeDisplayMode?.('local')}
                       className={`flex-1 py-1.5 px-3 rounded border text-xs font-medium transition-colors ${
                         timeDisplayMode === 'local'
                           ? 'bg-[#2563EB] border-[#2563EB] text-white font-semibold shadow-2xs'

@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ActiveTab,
+  DataSourceMode,
+  TimeDisplayMode,
   ThingSpeakChannel,
   ThingSpeakFeedItem,
   ChannelFieldDefinition,
 } from './types';
 import { fetchAllFeeds, fetchLatestFeed } from './services/api';
+import { useBleEeg } from './hooks/useBleEeg';
 import { calculateAllStats, deriveSamplingInformation } from './utils/eegCalculations';
 import { downloadCsvFile } from './utils/csvExport';
 import { downloadCsbFile } from './utils/csbExport';
@@ -93,6 +96,21 @@ export default function App() {
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
+
+  const [timeDisplayMode, setTimeDisplayMode] = useState<TimeDisplayMode>(() => {
+    const saved = localStorage.getItem('eeg_time_display_mode');
+    return saved === 'utc' ? 'utc' : 'local';
+  });
+
+  const handleSetTimeDisplayMode = useCallback((mode: TimeDisplayMode) => {
+    setTimeDisplayMode(mode);
+    localStorage.setItem('eeg_time_display_mode', mode);
+  }, []);
+
+  // Phase 1 BLE: separate Bluetooth source. Default remains ThingSpeak.
+  // `feeds` (ThingSpeak) loading/polling below is unchanged.
+  const [dataSource, setDataSource] = useState<DataSourceMode>('thingspeak');
+  const ble = useBleEeg();
 
   // Load initial dataset
   const loadData = useCallback(async (showLoadingSpinner: boolean = true) => {
@@ -200,8 +218,9 @@ export default function App() {
       title: 'EEG TELEMETRY SCIENTIFIC WORKSTATION REPORT',
       authorOrFacility: 'ThingSpeak Channel 3469764 Stream',
       notes: 'Automated telemetry synchronization and multi-channel signal statistics summary.',
+      timeDisplayMode,
     });
-  }, [channel, feeds, stats, samplingInfo]);
+  }, [channel, feeds, stats, samplingInfo, timeDisplayMode]);
 
   // Filtered CSV download
   const handleDownloadCsvRange = useCallback(
@@ -259,7 +278,7 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-[#2563EB]" />
                 <span className="font-mono font-bold text-xs text-[#0F172A]">
-                  EEG WORKSTATION
+                  BRAINMATRIX
                 </span>
               </div>
               <button
@@ -299,6 +318,8 @@ export default function App() {
           lastUpdated={lastUpdated}
           isMobileNavOpen={isMobileNavOpen}
           setIsMobileNavOpen={setIsMobileNavOpen}
+          timeDisplayMode={timeDisplayMode}
+          setTimeDisplayMode={handleSetTimeDisplayMode}
         />
 
         {/* SCROLLABLE MAIN CONTENT AREA */}
@@ -350,6 +371,7 @@ export default function App() {
                       connectionStatus={connectionStatus}
                       isPolling={isPolling}
                       lastUpdated={lastUpdated}
+                      timeDisplayMode={timeDisplayMode}
                     />
                   )}
 
@@ -362,6 +384,11 @@ export default function App() {
                       setIsPolling={setIsPolling}
                       onToggleChannel={handleToggleChannel}
                       lastUpdated={lastUpdated}
+                      timeDisplayMode={timeDisplayMode}
+                      dataSource={dataSource}
+                      onDataSourceChange={setDataSource}
+                      bleFeeds={ble.bleFeeds}
+                      ble={ble}
                     />
                   )}
 
@@ -373,6 +400,7 @@ export default function App() {
                       onDownloadCsvRange={handleDownloadCsvRange}
                       onDownloadCsbRange={handleDownloadCsbRange}
                       onToggleChannel={handleToggleChannel}
+                      timeDisplayMode={timeDisplayMode}
                     />
                   )}
 
@@ -383,6 +411,7 @@ export default function App() {
                       channels={channels}
                       onDownloadCsvFiltered={handleDownloadCsvRange}
                       onDownloadCsbFiltered={handleDownloadCsbRange}
+                      timeDisplayMode={timeDisplayMode}
                     />
                   )}
 
@@ -393,6 +422,7 @@ export default function App() {
                       channels={channels}
                       stats={stats}
                       samplingInfo={samplingInfo}
+                      timeDisplayMode={timeDisplayMode}
                     />
                   )}
 
@@ -403,6 +433,8 @@ export default function App() {
                       onToggleChannel={handleToggleChannel}
                       apiKeyConfigured={apiKeyConfigured}
                       totalRecords={feeds.length}
+                      timeDisplayMode={timeDisplayMode}
+                      setTimeDisplayMode={handleSetTimeDisplayMode}
                     />
                   )}
                 </motion.div>

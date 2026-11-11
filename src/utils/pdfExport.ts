@@ -4,7 +4,7 @@ import { saveAndShareFile } from './capacitorFile';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { ThingSpeakFeedItem, ThingSpeakChannel, ChannelStatistics, DerivedSamplingInfo } from '../types';
-import { formatDuration } from './eegCalculations';
+import { formatDuration, formatDateTimeForPdf, formatTimeForPdfAxis, formatDateForPdf, formatOverviewAxisLabel } from './eegCalculations';
 
 export interface PdfReportOptions {
   title?: string;
@@ -12,6 +12,7 @@ export interface PdfReportOptions {
   notes?: string;
   includeAllChannels?: boolean;
   windowDurationSeconds?: number;
+  timeDisplayMode?: 'utc' | 'local';
 }
 
 export interface TelemetryWindow {
@@ -47,45 +48,57 @@ export function partitionFeedsIntoWindows(
     ];
   }
 
-  // Dynamic window calculation for unconstrained, optimal scientific readability (~75–100 samples per window)
-  if (!targetWindowCount || targetWindowCount <= 0) {
-    const targetSamplesPerWindow = 80;
-    targetWindowCount = Math.max(1, Math.ceil(feeds.length / targetSamplesPerWindow));
+  // 1. Break feeds into contiguous segments at genuine recording gaps (> 300s / 5 min)
+  const gapThresholdSec = 300;
+  const segments: ThingSpeakFeedItem[][] = [];
+  let currentSeg: ThingSpeakFeedItem[] = [feeds[0]];
+
+  for (let i = 1; i < feeds.length; i++) {
+    const prevTime = new Date(feeds[i - 1].created_at).getTime();
+    const currTime = new Date(feeds[i].created_at).getTime();
+    const diffSec = (currTime - prevTime) / 1000;
+    if (diffSec > gapThresholdSec) {
+      segments.push(currentSeg);
+      currentSeg = [feeds[i]];
+    } else {
+      currentSeg.push(feeds[i]);
+    }
+  }
+  if (currentSeg.length > 0) segments.push(currentSeg);
+
+  // 2. Subdivide segments into readable analysis windows (~60-80 samples per window)
+  const targetSamplesPerWindow = 80;
+  const rawWindows: ThingSpeakFeedItem[][] = [];
+
+  for (const seg of segments) {
+    if (seg.length <= targetSamplesPerWindow * 1.35) {
+      rawWindows.push(seg);
+    } else {
+      const numWins = Math.ceil(seg.length / targetSamplesPerWindow);
+      const chunkSize = Math.ceil(seg.length / numWins);
+      for (let w = 0; w < numWins; w++) {
+        const chunk = seg.slice(w * chunkSize, Math.min(seg.length, (w + 1) * chunkSize));
+        if (chunk.length > 0) rawWindows.push(chunk);
+      }
+    }
   }
 
-  const windows: TelemetryWindow[] = [];
-  const chunkSize = Math.ceil(feeds.length / targetWindowCount);
-
-  for (let w = 0; w < targetWindowCount; w++) {
-    const startIdx = w * chunkSize;
-    const endIdx = Math.min(feeds.length, (w + 1) * chunkSize);
-    if (startIdx >= feeds.length) break;
-
-    const winFeeds = feeds.slice(startIdx, endIdx);
-    if (winFeeds.length === 0) continue;
-
+  const windows: TelemetryWindow[] = rawWindows.map((winFeeds, idx) => {
     const wStart = winFeeds[0].created_at;
     const wEnd = winFeeds[winFeeds.length - 1].created_at;
     const wDur = Math.max(
       0,
       Math.round((new Date(wEnd).getTime() - new Date(wStart).getTime()) / 1000)
     );
-
-    windows.push({
-      windowIndex: w + 1,
-      totalWindows: targetWindowCount,
+    return {
+      windowIndex: idx + 1,
+      totalWindows: rawWindows.length,
       feeds: winFeeds,
       startTimestamp: wStart,
       endTimestamp: wEnd,
       durationSeconds: wDur,
       sampleCount: winFeeds.length,
-    });
-  }
-
-  const total = windows.length;
-  windows.forEach((w, idx) => {
-    w.windowIndex = idx + 1;
-    w.totalWindows = total;
+    };
   });
 
   return windows;
@@ -117,11 +130,13 @@ function renderBiomedicalWaveformCanvas(
     overrideYMax?: number;
     startTimestamp?: string;
     endTimestamp?: string;
+    timeDisplayMode?: 'utc' | 'local';
   } = {}
 ): string {
   const width = options.width || 2000;
   const height = options.height || 650;
   const showTitle = options.showTitle !== undefined ? options.showTitle : true;
+  const timeDisplayMode = options.timeDisplayMode ?? 'local';
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -184,12 +199,12 @@ function renderBiomedicalWaveformCanvas(
     let headerRight = options.windowInfo;
     if (!headerRight) {
       const startStr = options.startTimestamp
-        ? options.startTimestamp.replace('T', ' ').substring(0, 19)
-        : (points.length > 0 ? points[0].timestamp.replace('T', ' ').substring(0, 19) : 'N/A');
+        ? formatDateTimeForPdf(options.startTimestamp, timeDisplayMode)
+        : (points.length > 0 ? formatDateTimeForPdf(points[0].timestamp, timeDisplayMode) : 'N/A');
       const endStr = options.endTimestamp
-        ? options.endTimestamp.replace('T', ' ').substring(0, 19)
-        : (points.length > 0 ? points[points.length - 1].timestamp.replace('T', ' ').substring(0, 19) : 'N/A');
-      headerRight = `${startStr} -> ${endStr} UTC  •  n = ${points.length} samples`;
+        ? formatDateTimeForPdf(options.endTimestamp, timeDisplayMode)
+        : (points.length > 0 ? formatDateTimeForPdf(points[points.length - 1].timestamp, timeDisplayMode) : 'N/A');
+      headerRight = `${startStr} -> ${endStr}  •  n = ${points.length} samples`;
     }
     ctx.fillText(headerRight, width - padRight, 34);
   }
@@ -269,11 +284,46 @@ function renderBiomedicalWaveformCanvas(
   const firstTimeMs = points[0].timeMs;
   const lastTimeMs = points[points.length - 1].timeMs;
   const timeSpanMs = Math.max(1, lastTimeMs - firstTimeMs);
+  // Determine if overview spans multiple calendar days (display timezone)
+  let isMultiDayOverview = false;
+  if (options.isOverview && points.length > 1) {
+    const firstD = new Date(firstTimeMs);
+    const lastD = new Date(lastTimeMs);
+    if (timeDisplayMode === 'utc') {
+      isMultiDayOverview =
+        firstD.getUTCDate() !== lastD.getUTCDate() ||
+        firstD.getUTCMonth() !== lastD.getUTCMonth() ||
+        firstD.getUTCFullYear() !== lastD.getUTCFullYear() ||
+        timeSpanMs > 86400000;
+    } else {
+      isMultiDayOverview =
+        firstD.getDate() !== lastD.getDate() ||
+        firstD.getMonth() !== lastD.getMonth() ||
+        firstD.getFullYear() !== lastD.getFullYear() ||
+        timeSpanMs > 86400000;
+    }
+  }
 
   const tsFontSize = 16;
   ctx.font = `bold ${tsFontSize}px "JetBrains Mono", monospace, sans-serif`;
-  const sampleLabel = '00:00:00 UTC';
-  const tsLabelW = ctx.measureText(sampleLabel).width;
+  // Use worst-case label length to prevent overlap/clipping
+  // Multi-day overview: "25 Aug 20:47 IST" ~15ch, time-only: "00:00:00 IST" ~11ch
+  let sampleLabel: string;
+  if (options.isOverview && isMultiDayOverview) {
+    sampleLabel =
+      timeDisplayMode === 'utc'
+        ? '25 Aug 20:47 UTC'
+        : formatOverviewAxisLabel(new Date().toISOString(), 'local', true) || '25 Aug 20:47 IST';
+  } else {
+    sampleLabel =
+      timeDisplayMode === 'utc'
+        ? '00:00:00 UTC'
+        : formatTimeForPdfAxis(new Date().toISOString(), 'local') || '00:00:00 GMT+00:00';
+  }
+  // Ensure width accounts for longest possible offset (e.g., UTC+14:00) and date prefix
+  const fallbackW = ctx.measureText('00:00:00 GMT+14:00').width;
+  const fallbackMultiW = ctx.measureText('25 Aug 20:47 GMT+14:00').width;
+  const tsLabelW = Math.max(ctx.measureText(sampleLabel).width, fallbackW, fallbackMultiW);
   const tsMinGap = 28;
   const tsSidePad = 14;
 
@@ -364,7 +414,7 @@ function renderBiomedicalWaveformCanvas(
 
   // Connect observations with line segments (lift pen if gap > 120s)
   ctx.strokeStyle = traceColor;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = options.isOverview ? 1.8 : 2.2;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -389,18 +439,18 @@ function renderBiomedicalWaveformCanvas(
   }
   ctx.stroke();
 
-  // Draw discrete sample markers on every data point
-  const dotR = options.isOverview ? 3.5 : 4.5;
-  for (const pt of points) {
-    const { x, y } = getXY(pt);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.arc(x, y, dotR + 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = traceColor;
-    ctx.beginPath();
-    ctx.arc(x, y, dotR, 0, Math.PI * 2);
-    ctx.fill();
+  // Draw small discrete sample dots ONLY for isolated single samples (where line cannot be formed)
+  for (let i = 0; i < points.length; i++) {
+    const prevGap = i > 0 ? (points[i].timeMs - points[i - 1].timeMs) / 1000 : Infinity;
+    const nextGap = i < points.length - 1 ? (points[i + 1].timeMs - points[i].timeMs) / 1000 : Infinity;
+    const isIsolated = prevGap > 120 && nextGap > 120;
+    if (isIsolated || points.length === 1) {
+      const { x, y } = getXY(points[i]);
+      ctx.fillStyle = traceColor;
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   ctx.restore();
@@ -418,10 +468,15 @@ function renderBiomedicalWaveformCanvas(
     let timeLabel = '';
     if (options.isOverview || timeSpanMs <= 0) {
       const fi = Math.min(feeds.length - 1, Math.floor(normX * (feeds.length - 1)));
-      timeLabel = (feeds[fi]?.created_at.substring(11, 19) || '00:00:00') + ' UTC';
+      const ts = feeds[fi]?.created_at || new Date(firstTimeMs + timeSpanMs * normX).toISOString();
+      if (isMultiDayOverview) {
+        timeLabel = formatOverviewAxisLabel(ts, timeDisplayMode, true);
+      } else {
+        timeLabel = formatTimeForPdfAxis(ts, timeDisplayMode);
+      }
     } else {
       const d = new Date(firstTimeMs + timeSpanMs * normX);
-      timeLabel = d.toISOString().substring(11, 19) + ' UTC';
+      timeLabel = formatTimeForPdfAxis(d.toISOString(), timeDisplayMode);
     }
     ctx.fillStyle = '#334155';
     ctx.font = `bold ${tsFontSize}px "JetBrains Mono", monospace, sans-serif`;
@@ -431,7 +486,7 @@ function renderBiomedicalWaveformCanvas(
 
   // Footer info
   if (feeds.length > 0) {
-    const datePart = feeds[0].created_at.substring(0, 10);
+    const datePart = formatDateForPdf(feeds[0].created_at, timeDisplayMode);
     ctx.fillStyle = '#94A3B8';
     ctx.font = `14px "JetBrains Mono", monospace, sans-serif`;
     ctx.textAlign = 'left';
@@ -489,25 +544,33 @@ export async function generatePdfReport(
   const margin = 14;
   const contentWidth = pageWidth - margin * 2; // 182mm
 
-  const genDateStr = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  const timeDisplayMode = options.timeDisplayMode ?? 'local';
+
+  const genDateStr = formatDateTimeForPdf(new Date().toISOString(), timeDisplayMode);
   const channelId = channel?.id ? String(channel.id) : '3469764';
   const channelName = channel?.name ?? 'SLEEP MONITORING';
 
   const firstDate =
-    feeds.length > 0 ? feeds[0].created_at.replace('T', ' ').substring(0, 19) + ' UTC' : 'N/A';
+    feeds.length > 0 ? formatDateTimeForPdf(feeds[0].created_at, timeDisplayMode) : 'N/A';
   const lastDate =
     feeds.length > 0
-      ? feeds[feeds.length - 1].created_at.replace('T', ' ').substring(0, 19) + ' UTC'
+      ? formatDateTimeForPdf(feeds[feeds.length - 1].created_at, timeDisplayMode)
       : 'N/A';
-  const recordingSec =
-    samplingInfo.recordingTimeSeconds ??
-    (feeds.length > 1
-      ? Math.round(
-          (new Date(feeds[feeds.length - 1].created_at).getTime() -
-            new Date(feeds[0].created_at).getTime()) /
-            1000
+  // Wall-clock elapsed: earliest to latest chronological telemetry (Field6 is per-session hardware timer, resets on reboot)
+  const wallClockSec =
+    feeds.length > 1
+      ? Math.max(
+          0,
+          Math.round(
+            (Math.max(...feeds.map(f => new Date(f.created_at).getTime())) -
+              Math.min(...feeds.map(f => new Date(f.created_at).getTime()))) /
+              1000
+          )
         )
-      : 0);
+      : 0;
+  // Keep hardware clock separately; report-level duration must be wall-clock
+  const hardwareSec = samplingInfo.recordingTimeSeconds;
+  const recordingSec = wallClockSec;
 
   const artifactCount = feeds.filter(f => f.field4 && parseFloat(f.field4) > 0).length;
   const eyeMoveCount = feeds.filter(f => f.field3 && parseFloat(f.field3) > 0).length;
@@ -563,7 +626,8 @@ export async function generatePdfReport(
   y += 15;
 
   // Channel & Recording Information Cards (Side by Side)
-  const cardHeight = 36;
+  const hasHardwareClock = hardwareSec !== null && hardwareSec !== undefined && !isNaN(hardwareSec);
+  const cardHeight = hasHardwareClock ? 42 : 36;
   const colWidth = (contentWidth - 4) / 2;
 
   // Left Card: Channel Specifications
@@ -607,12 +671,26 @@ export async function generatePdfReport(
     rLeft + 4,
     y + 22
   );
-  doc.text(`Total Records Analyzed: ${feeds.length.toLocaleString()}`, rLeft + 4, y + 27);
-  doc.text(
-    `Telemetry Interval: ~${samplingInfo.telemetryIntervalSeconds ?? 20}s reporting cadence`,
-    rLeft + 4,
-    y + 32
-  );
+  if (hasHardwareClock) {
+    doc.text(
+      `Hardware Session Clock (Field6): ${formatDuration(hardwareSec!)} (${hardwareSec}s)`,
+      rLeft + 4,
+      y + 27
+    );
+    doc.text(`Total Records Analyzed: ${feeds.length.toLocaleString()}`, rLeft + 4, y + 32);
+    doc.text(
+      `Telemetry Interval: ~${samplingInfo.telemetryIntervalSeconds ?? 20}s reporting cadence`,
+      rLeft + 4,
+      y + 37
+    );
+  } else {
+    doc.text(`Total Records Analyzed: ${feeds.length.toLocaleString()}`, rLeft + 4, y + 27);
+    doc.text(
+      `Telemetry Interval: ~${samplingInfo.telemetryIntervalSeconds ?? 20}s reporting cadence`,
+      rLeft + 4,
+      y + 32
+    );
+  }
 
   y += cardHeight + 6;
 
@@ -853,7 +931,7 @@ export async function generatePdfReport(
     ty + 12
   );
   doc.text('Technician / Reviewer Signature: ___________________________', margin + 4, ty + 22);
-  doc.text(`Date of Archival: ${genDateStr.substring(0, 10)}`, margin + contentWidth - 55, ty + 22);
+  doc.text(`Date of Archival: ${formatDateForPdf(new Date().toISOString(), timeDisplayMode)}`, margin + contentWidth - 55, ty + 22);
 
   // =========================================================================
   // PAGE 3: FULL RECORDING MACRO OVERVIEW (3 Stacked Plots on 1 Page)
@@ -894,6 +972,7 @@ export async function generatePdfReport(
       windowInfo: `Full Session • ${feeds.length} records • ${formatDuration(recordingSec)}`,
       width: 1600,
       height: 500,
+      timeDisplayMode,
     }
   );
   if (overviewImg1) {
@@ -913,6 +992,7 @@ export async function generatePdfReport(
       windowInfo: `Full Session • ${feeds.length} records • ${formatDuration(recordingSec)}`,
       width: 1600,
       height: 500,
+      timeDisplayMode,
     }
   );
   if (overviewImg2) {
@@ -932,6 +1012,7 @@ export async function generatePdfReport(
       windowInfo: `Auxiliary Event Stream • Total Events: ${eyeMoveCount}`,
       width: 1600,
       height: 500,
+      timeDisplayMode,
     }
   );
   if (overviewImg3) {
@@ -989,9 +1070,11 @@ export async function generatePdfReport(
     doc.addPage();
     let wy = margin;
 
-    const wStartStr = win.startTimestamp.replace('T', ' ').substring(0, 19) + ' UTC';
-    const wEndStr = win.endTimestamp.replace('T', ' ').substring(0, 19) + ' UTC';
-    const winInfo = `Window ${win.windowIndex}/${win.totalWindows}  •  ${wStartStr.substring(11, 19)}–${wEndStr.substring(11, 19)} UTC  •  n = ${win.sampleCount} samples`;
+    const wStartStr = formatDateTimeForPdf(win.startTimestamp, timeDisplayMode);
+    const wEndStr = formatDateTimeForPdf(win.endTimestamp, timeDisplayMode);
+    const wStartTimeOnly = formatTimeForPdfAxis(win.startTimestamp, timeDisplayMode);
+    const wEndTimeOnly = formatTimeForPdfAxis(win.endTimestamp, timeDisplayMode);
+    const winInfo = `Window ${win.windowIndex}/${win.totalWindows}  •  ${wStartTimeOnly}–${wEndTimeOnly}  •  n = ${win.sampleCount} samples`;
 
     // Window Page Banner
     doc.setFillColor(37, 99, 235);
@@ -1034,6 +1117,7 @@ export async function generatePdfReport(
         windowInfo: winInfo,
         width: 1600,
         height: 650,
+        timeDisplayMode,
       }
     );
     if (imgF1) {
@@ -1057,6 +1141,7 @@ export async function generatePdfReport(
         windowInfo: winInfo,
         width: 1600,
         height: 650,
+        timeDisplayMode,
       }
     );
     if (imgF2) {

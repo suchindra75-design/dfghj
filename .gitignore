@@ -8,3 +8,6 @@ coverage/
 !.env.example
 tmp_apk/
 *.apk
+
+# Generated export reports
+EEG_Scientific_Report_*.pdf

@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActiveTab, ThingSpeakChannel } from '../types';
+import { ActiveTab, ThingSpeakChannel, TimeDisplayMode } from '../types';
+import { formatTimeForPdfAxis } from '../utils/eegCalculations';
 import {
   Activity,
   BarChart3,
@@ -30,6 +31,7 @@ interface NavbarProps {
   apiKeyConfigured: boolean;
   connectionStatus: 'connected' | 'loading' | 'error' | 'paused';
   lastUpdated: string | null;
+  timeDisplayMode?: TimeDisplayMode;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -46,6 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   apiKeyConfigured,
   connectionStatus,
   lastUpdated,
+  timeDisplayMode,
 }) => {
   const tabs = [
     { id: 'overview' as ActiveTab, label: 'Overview', icon: BarChart3 },
@@ -64,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-[#2563EB]" />
             <span className="font-semibold text-[#0F172A] tracking-tight text-xs sm:text-sm flex items-center gap-1.5 font-mono">
-              EEG SCIENTIFIC WORKSTATION
+              BRAINMATRIX
             </span>
           </div>
 
@@ -125,7 +128,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {lastUpdated && (
             <div className="hidden lg:flex items-center gap-1 text-[#64748B]">
               <Clock className="w-3.5 h-3.5 text-[#94A3B8]" />
-              <span>{lastUpdated.substring(11, 19)} UTC</span>
+              <span>{formatTimeForPdfAxis(lastUpdated, timeDisplayMode || 'local')}</span>
             </div>
           )}
 

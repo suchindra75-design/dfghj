@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActiveTab, ThingSpeakChannel } from '../types';
+import { ActiveTab, ThingSpeakChannel, TimeDisplayMode } from '../types';
 import {
   CheckCircle2,
   AlertCircle,
@@ -13,6 +13,7 @@ import {
   X,
   Database,
 } from 'lucide-react';
+import { formatDateTime } from '../utils/eegCalculations';
 
 interface TopHeaderProps {
   activeTab: ActiveTab;
@@ -30,6 +31,8 @@ interface TopHeaderProps {
   lastUpdated: string | null;
   isMobileNavOpen: boolean;
   setIsMobileNavOpen: (open: boolean) => void;
+  timeDisplayMode?: TimeDisplayMode;
+  setTimeDisplayMode?: (mode: TimeDisplayMode) => void;
 }
 
 const TAB_METADATA: Record<ActiveTab, { title: string; subtitle: string }> = {
@@ -74,18 +77,17 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   lastUpdated,
   isMobileNavOpen,
   setIsMobileNavOpen,
+  timeDisplayMode = 'utc',
+  setTimeDisplayMode,
 }) => {
-  const currentMeta = TAB_METADATA[activeTab] || {
-    title: 'Workstation',
-    subtitle: 'EEG Signal Analysis',
-  };
+  const currentMeta = TAB_METADATA[activeTab] || TAB_METADATA.overview;
 
   return (
     <header
       id="top-header"
-      className="h-14 bg-white border-b border-[#E2E8F0] px-4 md:px-6 flex items-center justify-between gap-3 shrink-0 z-20"
+      className="h-13 bg-white border-b border-[#E2E8F0] px-3 sm:px-4 md:px-6 flex items-center justify-between gap-3 shrink-0 z-20"
     >
-      {/* Left: Page Title & Breadcrumb */}
+      {/* Left: Mobile Nav Toggle & Current View Meta */}
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={() => setIsMobileNavOpen(!isMobileNavOpen)}
@@ -108,44 +110,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: ThingSpeak Status, Last Sync, Controls */}
+      {/* Right: Last Sync, Controls */}
       <div className="flex items-center gap-2 sm:gap-3 text-xs font-mono shrink-0">
-        {/* Connection Status Indicator */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#F8FAFC] border border-[#E2E8F0]">
-          {connectionStatus === 'connected' && (
-            <>
-              <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse" />
-              <span className="text-[#16A34A] font-semibold text-[11px] hidden sm:inline">
-                ThingSpeak Online
-              </span>
-              <span className="text-[#16A34A] font-semibold text-[11px] sm:hidden">Online</span>
-            </>
-          )}
-          {connectionStatus === 'loading' && (
-            <>
-              <RefreshCw className="w-3 h-3 text-[#2563EB] animate-spin" />
-              <span className="text-[#2563EB] font-semibold text-[11px]">Syncing</span>
-            </>
-          )}
-          {connectionStatus === 'paused' && (
-            <>
-              <Pause className="w-3 h-3 text-[#D97706]" />
-              <span className="text-[#D97706] font-semibold text-[11px]">Paused</span>
-            </>
-          )}
-          {connectionStatus === 'error' && (
-            <>
-              <AlertCircle className="w-3 h-3 text-[#DC2626]" />
-              <span className="text-[#DC2626] font-semibold text-[11px]">Error</span>
-            </>
-          )}
-        </div>
-
         {/* Last Synchronized Time */}
         {lastUpdated && (
           <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-[#64748B] px-2 py-1 bg-white border border-[#E2E8F0] rounded">
             <Clock className="w-3 h-3 text-[#94A3B8]" />
-            <span>Sync: <strong className="text-[#0F172A]">{lastUpdated.substring(11, 19)} UTC</strong></span>
+            <span>Sync: <strong className="text-[#0F172A]">{formatDateTime(lastUpdated, timeDisplayMode)}</strong></span>
           </div>
         )}
 

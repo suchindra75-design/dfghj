@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="true"
@@ -40,4 +41,26 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- BLE: declare LE hardware support (not required, so install stays possible on all devices) -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <!-- Android 12+ (API 31+) runtime BLE permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!--
+        Location permissions — required for BLE scanning on API ≤ 30 only.
+        The bluetooth-le plugin's AndroidManifest declares ACCESS_FINE_LOCATION and
+        ACCESS_COARSE_LOCATION *without* maxSdkVersion, which during manifest merge
+        would override our maxSdkVersion="30" restriction and cause a "Missing permission"
+        error on Android 12+ (where location is not needed for BLE scanning with
+        neverForLocation). tools:node="replace" forces our bounded declarations to win.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" tools:node="replace" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" tools:node="replace" />
+
+    <!-- Legacy Bluetooth permissions for API <= 30 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 </manifest>

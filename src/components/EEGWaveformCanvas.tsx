@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { ThingSpeakFeedItem, ChannelFieldDefinition } from '../types';
-import { decimateWaveformForCanvas, formatDateTime } from '../utils/eegCalculations';
+import { ThingSpeakFeedItem, ChannelFieldDefinition, TimeDisplayMode } from '../types';
+import { decimateWaveformForCanvas, formatDateTime, formatTimeForPdfAxis } from '../utils/eegCalculations';
 import {
   ZoomIn,
   ZoomOut,
@@ -26,6 +26,7 @@ interface EEGWaveformCanvasProps {
   gain?: number;
   onGainChange?: (gain: number) => void;
   onToggleChannel?: (fieldKey: string) => void;
+  timeDisplayMode?: TimeDisplayMode;
 }
 
 export interface CanvasLayoutMetrics {
@@ -140,6 +141,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
   gain: externalGain,
   onGainChange,
   onToggleChannel,
+  timeDisplayMode = 'utc',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -676,7 +678,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
 
     let fontSize = 9;
     ctx.font = `${fontSize}px JetBrains Mono, monospace`;
-    const sampleStr = "00:00:00 UTC";
+    const sampleStr = "00:00:00 IST";
     let labelW = ctx.measureText(sampleStr).width;
     const minSpacing = 16;
     const sidePadding = 8;
@@ -722,7 +724,8 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
         ctx.fillStyle = '#64748B';
         ctx.font = `${fontSize}px JetBrains Mono, monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText(timeStr.substring(11, 19) + ' UTC', tx, layout.padTop + layout.plotH + 16);
+        const displayTick = formatTimeForPdfAxis(timeStr, timeDisplayMode);
+        ctx.fillText(displayTick, tx, layout.padTop + layout.plotH + 16);
       }
     }
 
@@ -749,8 +752,8 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const hoverTime = hoverInfo.feedItem.created_at.substring(11, 19) + ' UTC';
-      const badgeW = 76;
+      const hoverTime = formatDateTime(hoverInfo.feedItem.created_at, timeDisplayMode);
+      const badgeW = timeDisplayMode === 'local' ? 145 : 135;
       const badgeX = Math.max(
         layout.padLeft,
         Math.min(hoverInfo.x - badgeW / 2, width - layout.padRight - badgeW)
@@ -1325,7 +1328,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
               <span>INSPECTING ENTRY #{hoverInfo.feedItem.entry_id}</span>
               <span className="text-[#94A3B8] font-normal">&bull;</span>
               <span className="text-[#64748B] font-normal">
-                {hoverInfo.feedItem.created_at.substring(0, 19).replace('T', ' ')} UTC
+                {formatDateTime(hoverInfo.feedItem.created_at, timeDisplayMode)}
               </span>
             </div>
           ) : (
@@ -1334,7 +1337,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
               <span>LATEST PACKET #{latestFeed?.entry_id ?? '—'}</span>
               <span className="text-[#94A3B8] font-normal">&bull;</span>
               <span className="text-[#64748B] font-normal">
-                {latestFeed ? latestFeed.created_at.substring(11, 19) + ' UTC' : '—'}
+                {latestFeed ? formatDateTime(latestFeed.created_at, timeDisplayMode) : '—'}
               </span>
             </div>
           )}

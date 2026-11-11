@@ -1,4 +1,5 @@
 import { ThingSpeakFeedItem, ChannelStatistics, DerivedSamplingInfo, ChannelFieldDefinition } from '../types';
+import { parseUtcDate } from './timezoneUtils';
 
 /**
  * Calculates descriptive statistics for a specific channel field without modifying raw data.
@@ -293,23 +294,200 @@ export function formatDuration(seconds: number): string {
 /**
  * Formats an ISO date into formatted UTC and Local time strings.
  */
-export function formatDateTime(isoString: string, mode: 'utc' | 'local' = 'utc'): string {
+export function formatDateTime(isoString: string, mode: 'utc' | 'local' = 'local'): string {
   try {
-    const d = new Date(isoString);
+    const d = parseUtcDate(isoString);
     if (isNaN(d.getTime())) return isoString;
 
+    const pad = (n: number) => String(n).padStart(2, '0');
+
     if (mode === 'utc') {
-      return d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+      const year = d.getUTCFullYear();
+      const month = pad(d.getUTCMonth() + 1);
+      const day = pad(d.getUTCDate());
+      const hours = pad(d.getUTCHours());
+      const minutes = pad(d.getUTCMinutes());
+      const seconds = pad(d.getUTCSeconds());
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
     }
-    return d.toLocaleString(undefined, {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
+
+    const year = d.getFullYear();
+    const month = pad(d.getMonth() + 1);
+    const day = pad(d.getDate());
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    const seconds = pad(d.getSeconds());
+    const tzAbbr = getLocalTzAbbr(d);
+
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} ${tzAbbr}`;
+  } catch {
+    return isoString;
+  }
+}
+
+function getLocalTzAbbr(d: Date): string {
+  const candidates: (string | undefined)[] = [undefined, 'en-US', 'en-GB', 'en-IN', 'de-DE', 'ja-JP', 'fr-FR'];
+  for (const loc of candidates) {
+    try {
+      const abbr = Intl.DateTimeFormat(loc as string, { timeZoneName: 'short' })
+        .formatToParts(d)
+        .find(p => p.type === 'timeZoneName')?.value;
+      if (abbr && !abbr.startsWith('GMT')) return abbr;
+    } catch {}
+  }
+  for (const loc of candidates) {
+    try {
+      const abbr = Intl.DateTimeFormat(loc as string, { timeZoneName: 'shortGeneric' })
+        .formatToParts(d)
+        .find(p => p.type === 'timeZoneName')?.value;
+      if (abbr && !abbr.startsWith('GMT') && abbr !== 'United Kingdom Time' && abbr !== 'Germany Time') return abbr;
+    } catch {}
+  }
+  // Final fallback: use offset-derived abbreviation or LOCAL
+  const fallback = Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+    .formatToParts(d)
+    .find(p => p.type === 'timeZoneName')?.value;
+  return fallback || 'LOCAL';
+}
+
+/**
+ * Formats an ISO date for PDF display with explicit timezone label.
+ * Example output: "03 Sep 2026, 02:45:52 IST (UTC+05:30)"
+ */
+export function formatDateTimeForPdf(isoString: string, mode: 'utc' | 'local' = 'local'): string {
+  try {
+    const d = parseUtcDate(isoString);
+    if (isNaN(d.getTime())) return isoString;
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    if (mode === 'utc') {
+      const day = pad(d.getUTCDate());
+      const month = months[d.getUTCMonth()];
+      const year = d.getUTCFullYear();
+      const hours = pad(d.getUTCHours());
+      const minutes = pad(d.getUTCMinutes());
+      const seconds = pad(d.getUTCSeconds());
+      return `${day} ${month} ${year}, ${hours}:${minutes}:${seconds} UTC`;
+    }
+
+    const day = pad(d.getDate());
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    const seconds = pad(d.getSeconds());
+
+    // Get timezone offset in hours:minutes format
+    const offsetMinutes = -d.getTimezoneOffset(); // positive = ahead of UTC
+    const offsetSign = offsetMinutes >= 0 ? '+' : '-';
+    const offsetHours = Math.floor(Math.abs(offsetMinutes) / 60);
+    const offsetMins = Math.abs(offsetMinutes) % 60;
+    const offsetStr = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMins).padStart(2, '0')}`;
+
+    const tzAbbr = getLocalTzAbbr(d);
+
+    return `${day} ${month} ${year}, ${hours}:${minutes}:${seconds} ${tzAbbr} (UTC${offsetStr})`;
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * Formats a time-only string with timezone label.
+ * Example output: "00:20:24 IST" or "18:50:24 UTC"
+ */
+export function formatTimeForPdfAxis(isoString: string, mode: 'utc' | 'local' = 'local'): string {
+  try {
+    const d = parseUtcDate(isoString);
+    if (isNaN(d.getTime())) return isoString;
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    if (mode === 'utc') {
+      const hours = pad(d.getUTCHours());
+      const minutes = pad(d.getUTCMinutes());
+      const seconds = pad(d.getUTCSeconds());
+      return `${hours}:${minutes}:${seconds} UTC`;
+    }
+
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    const seconds = pad(d.getSeconds());
+    const tzAbbr = getLocalTzAbbr(d);
+
+    return `${hours}:${minutes}:${seconds} ${tzAbbr}`;
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * Formats overview X-axis label; for multi-day sessions includes calendar date.
+ * Single-day: "02:45:52 IST", Multi-day: "25 Aug 20:47 IST"
+ */
+export function formatOverviewAxisLabel(isoString: string, mode: 'utc' | 'local' = 'local', isMultiDay: boolean = false): string {
+  try {
+    const d = parseUtcDate(isoString);
+    if (isNaN(d.getTime())) return isoString;
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    if (mode === 'utc') {
+      if (isMultiDay) {
+        const day = pad(d.getUTCDate());
+        const month = months[d.getUTCMonth()];
+        const hours = pad(d.getUTCHours());
+        const minutes = pad(d.getUTCMinutes());
+        return `${day} ${month} ${hours}:${minutes} UTC`;
+      }
+      const hours = pad(d.getUTCHours());
+      const minutes = pad(d.getUTCMinutes());
+      const seconds = pad(d.getUTCSeconds());
+      return `${hours}:${minutes}:${seconds} UTC`;
+    }
+
+    const tzAbbr = getLocalTzAbbr(d);
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    const seconds = pad(d.getSeconds());
+    if (isMultiDay) {
+      const day = pad(d.getDate());
+      const month = months[d.getMonth()];
+      return `${day} ${month} ${hours}:${minutes} ${tzAbbr}`;
+    }
+    return `${hours}:${minutes}:${seconds} ${tzAbbr}`;
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * Formats date-only string.
+ * Example output: "04 Sep 2026" or "2026-09-03 UTC"
+ */
+export function formatDateForPdf(isoString: string, mode: 'utc' | 'local' = 'local'): string {
+  try {
+    const d = parseUtcDate(isoString);
+    if (isNaN(d.getTime())) return isoString;
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    if (mode === 'utc') {
+      const day = pad(d.getUTCDate());
+      const month = months[d.getUTCMonth()];
+      const year = d.getUTCFullYear();
+      return `${day} ${month} ${year} UTC`;
+    }
+
+    const day = pad(d.getDate());
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+
+    return `${day} ${month} ${year}`;
   } catch {
     return isoString;
   }

@@ -57,11 +57,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Activity className="w-4 h-4" />
             </div>
             <div>
-              <div className="font-mono text-[11px] font-bold tracking-wider text-[#0F172A] leading-tight">
-                EEG SCIENTIFIC
+              <div className="font-mono text-xs font-bold tracking-wider text-[#0F172A] leading-tight">
+                BRAINMATRIX
               </div>
               <div className="font-mono text-[10px] text-[#64748B] tracking-wider uppercase">
-                WORKSTATION
+                EEG WORKSTATION
               </div>
             </div>
           </div>

@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import { ThingSpeakFeedItem, ChannelFieldDefinition, ThingSpeakChannel } from '../types';
+import { ThingSpeakFeedItem, ChannelFieldDefinition, ThingSpeakChannel, TimeDisplayMode, DataSourceMode } from '../types';
 import { EEGWaveformCanvas } from './EEGWaveformCanvas';
+import { BleConnectBar } from './BleConnectBar';
+import type { UseBleEegReturn } from '../hooks/useBleEeg';
+import { BLE_NOMINAL_HZ } from '../services/ble/bleRingBuffer';
 import {
   Pause,
   Play,
@@ -21,6 +24,12 @@ interface EEGMonitorViewProps {
   setIsPolling: (polling: boolean) => void;
   onToggleChannel: (fieldKey: string) => void;
   lastUpdated: string | null;
+  timeDisplayMode?: TimeDisplayMode;
+  // Phase 1 BLE (optional; defaults preserve exact ThingSpeak behavior).
+  dataSource?: DataSourceMode;
+  onDataSourceChange?: (mode: DataSourceMode) => void;
+  bleFeeds?: ThingSpeakFeedItem[];
+  ble?: UseBleEegReturn | null;
 }
 
 export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
@@ -31,16 +40,36 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
   setIsPolling,
   onToggleChannel,
   lastUpdated,
+  timeDisplayMode = 'utc',
+  dataSource = 'thingspeak',
+  onDataSourceChange,
+  bleFeeds = [],
+  ble = null,
 }) => {
   const [windowSamples, setWindowSamples] = useState<number>(300); // Default 300 samples (~1.5 hours)
   const [monitorGain, setMonitorGain] = useState<number>(1);
+  // Phase 1 BLE: time-based window presets (seconds) — independent of ThingSpeak presets.
+  const [bleWindowSec, setBleWindowSec] = useState<number>(10);
 
+  const isBle = dataSource === 'bluetooth';
+
+  // Active source feeds. ThingSpeak path is byte-identical to previous behavior.
+  const activeFeeds = isBle ? bleFeeds : feeds;
   // Get active window feeds
-  const displayFeeds = windowSamples === 0 ? feeds : feeds.slice(-windowSamples);
-  const latestFeed = feeds.length > 0 ? feeds[feeds.length - 1] : null;
+  const displayFeeds = isBle
+    ? activeFeeds.slice(-Math.max(1, Math.round(bleWindowSec * BLE_NOMINAL_HZ)))
+    : windowSamples === 0 ? feeds : feeds.slice(-windowSamples);
+  const latestFeed = activeFeeds.length > 0 ? activeFeeds[activeFeeds.length - 1] : null;
+
+  if (isBle) {
+    console.log(`[BLE DIAG] EEGMonitorView rendering: dataSource=${dataSource} | bleFeeds=${bleFeeds.length} | displayFeeds=${displayFeeds.length}`);
+  }
 
   return (
     <div id="eeg-monitor-view" className="space-y-4">
+      {/* Phase 1 BLE connection controls (Bluetooth source only) */}
+      {isBle && ble && <BleConnectBar ble={ble} />}
+
       {/* 1. TOP COMPACT MONITOR CONTROL BAR */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] select-none text-xs font-mono">
         {/* Left: Stream Status & Toggle */}
@@ -48,11 +77,23 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
           <div className="flex items-center gap-2">
             <span
               className={`w-2.5 h-2.5 rounded-full ${
-                isPolling ? 'bg-[#16A34A] animate-pulse' : 'bg-[#D97706]'
+                isBle
+                  ? ble?.isStreaming
+                    ? 'bg-[#16A34A] animate-pulse'
+                    : 'bg-[#D97706]'
+                  : isPolling
+                    ? 'bg-[#16A34A] animate-pulse'
+                    : 'bg-[#D97706]'
               }`}
             />
             <span className="font-bold text-[#0F172A] tracking-tight">
-              {isPolling ? 'LIVE OSCILLOSCOPE STREAM' : 'STREAM ACQUISITION PAUSED'}
+              {isBle
+                ? ble?.isStreaming
+                  ? 'LIVE BLE DATA — PREVIEW'
+                  : 'BLE STREAM IDLE — CONNECT DEVICE'
+                : isPolling
+                  ? 'LIVE OSCILLOSCOPE STREAM'
+                  : 'STREAM ACQUISITION PAUSED'}
             </span>
           </div>
 
@@ -70,29 +111,72 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
           </button>
         </div>
 
-        {/* Center: Buffer Presets */}
+        {/* Center: Data Source Selector (Phase 1 BLE, additive) */}
         <div className="flex items-center gap-1.5">
-          <span className="text-[#64748B] text-[10px] uppercase font-semibold">FEED BUFFER:</span>
+          <span className="text-[#64748B] text-[10px] uppercase font-semibold">SOURCE:</span>
           <div className="flex rounded bg-white p-0.5 border border-[#CBD5E1] shadow-2xs">
-            {[
-              { count: 100, label: '100 pts' },
-              { count: 300, label: '300 pts' },
-              { count: 600, label: '600 pts' },
-              { count: 1200, label: '1.2k pts' },
-              { count: 0, label: `All (${feeds.length})` },
-            ].map(b => (
+            {(
+              [
+                { id: 'thingspeak', label: 'ThingSpeak' },
+                { id: 'bluetooth', label: 'Bluetooth' },
+              ] as const
+            ).map(s => (
               <button
-                key={b.count}
-                onClick={() => setWindowSamples(b.count)}
+                key={s.id}
+                onClick={() => onDataSourceChange?.(s.id)}
                 className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
-                  windowSamples === b.count
+                  dataSource === s.id
                     ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
                     : 'text-[#475569] hover:text-[#0F172A]'
                 }`}
               >
-                {b.label}
+                {s.label}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Center: Buffer Presets (ThingSpeak meaning unchanged; BLE uses time-based presets) */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[#64748B] text-[10px] uppercase font-semibold">FEED BUFFER:</span>
+          <div className="flex rounded bg-white p-0.5 border border-[#CBD5E1] shadow-2xs">
+            {!isBle
+              ? [
+                  { count: 100, label: '100 pts' },
+                  { count: 300, label: '300 pts' },
+                  { count: 600, label: '600 pts' },
+                  { count: 1200, label: '1.2k pts' },
+                  { count: 0, label: `All (${feeds.length})` },
+                ].map(b => (
+                  <button
+                    key={b.count}
+                    onClick={() => setWindowSamples(b.count)}
+                    className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+                      windowSamples === b.count
+                        ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+                        : 'text-[#475569] hover:text-[#0F172A]'
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                ))
+              : [
+                  { secs: 5, label: '5 sec' },
+                  { secs: 10, label: '10 sec' },
+                  { secs: 30, label: '30 sec' },
+                ].map(b => (
+                  <button
+                    key={b.secs}
+                    onClick={() => setBleWindowSec(b.secs)}
+                    className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+                      bleWindowSec === b.secs
+                        ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+                        : 'text-[#475569] hover:text-[#0F172A]'
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                ))}
           </div>
         </div>
 
@@ -100,7 +184,15 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
         <div className="flex items-center gap-3 text-[11px] text-[#64748B]">
           <div className="flex items-center gap-1">
             <Clock className="w-3 h-3 text-[#2563EB]" />
-            <span>Cadence: <strong className="text-[#0F172A]">~20.6s</strong></span>
+            {!isBle ? (
+              <span>Cadence: <strong className="text-[#0F172A]">~20.6s</strong></span>
+            ) : (
+              <span>
+                BLE: <strong className="text-[#0F172A]">
+                  {ble && ble.status.receivedHz > 0 ? `~${ble.status.receivedHz.toFixed(0)} Hz observed` : 'awaiting stream'}
+                </strong>
+              </span>
+            )}
           </div>
           <span className="text-[#CBD5E1]">&bull;</span>
           <div>
@@ -120,6 +212,7 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
           gain={monitorGain}
           onGainChange={setMonitorGain}
           onToggleChannel={onToggleChannel}
+          timeDisplayMode={timeDisplayMode}
         />
       </div>
 
@@ -212,7 +305,14 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
             <span>Channel ID: #{channel?.id || '3469764'}</span>
           </span>
           <span className="text-[#CBD5E1]">&bull;</span>
-          <span>Sampling: Raw ThingSpeak Cadence (~20.6s)</span>
+          {!isBle ? (
+            <span>Sampling: Raw ThingSpeak Cadence (~20.6s)</span>
+          ) : (
+            <span>
+              Sampling: Live BLE Preview (nominal 256 Hz device clock
+              {ble && ble.status.receivedHz > 0 ? `, ~${ble.status.receivedHz.toFixed(0)} Hz observed` : ''})
+            </span>
+          )}
           <span className="text-[#CBD5E1]">&bull;</span>
           <span>Buffer: {displayFeeds.length.toLocaleString()} points</span>
         </div>

@@ -4,9 +4,16 @@ import {
   ChannelFieldDefinition,
   ThingSpeakChannel,
   ChannelStatistics,
+  TimeDisplayMode,
 } from '../types';
 import { EEGWaveformCanvas } from './EEGWaveformCanvas';
 import { calculateFieldStats, formatDuration, formatDateTime } from '../utils/eegCalculations';
+import {
+  utcToLocalDatetimeLocalString,
+  localDatetimeToUtcIso,
+  getLocalTodayRange,
+  getLocalLast24hRange,
+} from '../utils/timezoneUtils';
 import {
   Calendar,
   Filter,
@@ -27,6 +34,7 @@ interface HistoricalViewProps {
   onDownloadCsvRange: (filteredFeeds: ThingSpeakFeedItem[], label: string) => void;
   onDownloadCsbRange?: (filteredFeeds: ThingSpeakFeedItem[], label: string) => void;
   onToggleChannel?: (fieldKey: string) => void;
+  timeDisplayMode?: TimeDisplayMode;
 }
 
 export const HistoricalView: React.FC<HistoricalViewProps> = ({
@@ -36,10 +44,11 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
   onDownloadCsvRange,
   onDownloadCsbRange,
   onToggleChannel,
+  timeDisplayMode = 'utc',
 }) => {
-  // Start / End filter strings (ISO or YYYY-MM-DDTHH:mm)
-  const initialStartDate = feeds.length > 0 ? feeds[0].created_at.substring(0, 16) : '';
-  const initialEndDate = feeds.length > 0 ? feeds[feeds.length - 1].created_at.substring(0, 16) : '';
+  // Start / End filter strings in Local datetime-local format ("YYYY-MM-DDTHH:mm")
+  const initialStartDate = feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[0].created_at) : '';
+  const initialEndDate = feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[feeds.length - 1].created_at) : '';
 
   const [startDate, setStartDate] = useState<string>(initialStartDate);
   const [endDate, setEndDate] = useState<string>(initialEndDate);
@@ -48,20 +57,22 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
   const [compareChA, setCompareChA] = useState<string>('field1');
   const [compareChB, setCompareChB] = useState<string>('field2');
 
-  // Filtered feeds by date/time
+  // Filtered feeds by converting local datetime-local input values to explicit UTC ISO strings
   const filteredFeeds = useMemo(() => {
     if (!feeds || feeds.length === 0) return [];
     let list = feeds;
 
     if (startDate) {
-      const sMs = new Date(startDate).getTime();
+      const startUtcIso = localDatetimeToUtcIso(startDate);
+      const sMs = new Date(startUtcIso).getTime();
       if (!isNaN(sMs)) {
         list = list.filter(f => new Date(f.created_at).getTime() >= sMs);
       }
     }
 
     if (endDate) {
-      const eMs = new Date(endDate).getTime();
+      const endUtcIso = localDatetimeToUtcIso(endDate);
+      const eMs = new Date(endUtcIso).getTime();
       if (!isNaN(eMs)) {
         list = list.filter(f => new Date(f.created_at).getTime() <= eMs);
       }
@@ -82,19 +93,28 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
   }, [filteredFeeds, compareChB, channels]);
 
   // Quick Range Presets
-  const applyPreset = (preset: 'all' | 'first100' | 'last100' | 'last24h') => {
-    if (feeds.length === 0) return;
+  const applyPreset = (preset: 'all' | 'today' | 'last24h' | 'first100' | 'last100') => {
+    if (feeds.length === 0 && preset !== 'today' && preset !== 'last24h') return;
+
     if (preset === 'all') {
-      setStartDate(feeds[0].created_at.substring(0, 16));
-      setEndDate(feeds[feeds.length - 1].created_at.substring(0, 16));
+      setStartDate(utcToLocalDatetimeLocalString(feeds[0].created_at));
+      setEndDate(utcToLocalDatetimeLocalString(feeds[feeds.length - 1].created_at));
+    } else if (preset === 'today') {
+      const todayRange = getLocalTodayRange();
+      setStartDate(todayRange.startLocal);
+      setEndDate(todayRange.endLocal);
+    } else if (preset === 'last24h') {
+      const last24hRange = getLocalLast24hRange();
+      setStartDate(last24hRange.startLocal);
+      setEndDate(last24hRange.endLocal);
     } else if (preset === 'first100') {
-      setStartDate(feeds[0].created_at.substring(0, 16));
+      setStartDate(utcToLocalDatetimeLocalString(feeds[0].created_at));
       const endSample = feeds[Math.min(100, feeds.length - 1)];
-      setEndDate(endSample.created_at.substring(0, 16));
+      setEndDate(utcToLocalDatetimeLocalString(endSample.created_at));
     } else if (preset === 'last100') {
       const startSample = feeds[Math.max(0, feeds.length - 100)];
-      setStartDate(startSample.created_at.substring(0, 16));
-      setEndDate(feeds[feeds.length - 1].created_at.substring(0, 16));
+      setStartDate(utcToLocalDatetimeLocalString(startSample.created_at));
+      setEndDate(utcToLocalDatetimeLocalString(feeds[feeds.length - 1].created_at));
     }
   };
 
@@ -119,16 +139,28 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
               Full Dataset ({feeds.length})
             </button>
             <button
+              onClick={() => applyPreset('today')}
+              className="px-2.5 py-1 rounded bg-white hover:bg-[#F8FAFC] text-[#334155] hover:text-[#0F172A] border border-[#CBD5E1] text-[11px] font-medium transition-colors shadow-2xs"
+            >
+              Today (Local)
+            </button>
+            <button
+              onClick={() => applyPreset('last24h')}
+              className="px-2.5 py-1 rounded bg-white hover:bg-[#F8FAFC] text-[#334155] hover:text-[#0F172A] border border-[#CBD5E1] text-[11px] font-medium transition-colors shadow-2xs"
+            >
+              Last 24h
+            </button>
+            <button
               onClick={() => applyPreset('first100')}
               className="px-2.5 py-1 rounded bg-white hover:bg-[#F8FAFC] text-[#334155] hover:text-[#0F172A] border border-[#CBD5E1] text-[11px] font-medium transition-colors shadow-2xs"
             >
-              First 100 Samples
+              First 100
             </button>
             <button
               onClick={() => applyPreset('last100')}
               className="px-2.5 py-1 rounded bg-white hover:bg-[#F8FAFC] text-[#334155] hover:text-[#0F172A] border border-[#CBD5E1] text-[11px] font-medium transition-colors shadow-2xs"
             >
-              Last 100 Samples
+              Last 100
             </button>
           </div>
         </div>
@@ -136,7 +168,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
         {/* Date Inputs & Status */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
           <div className="space-y-1">
-            <label className="text-[#64748B] font-medium">START TIME (UTC / LOCAL):</label>
+            <label className="text-[#64748B] font-medium">START TIME (LOCAL):</label>
             <input
               type="datetime-local"
               value={startDate}
@@ -146,7 +178,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
           </div>
 
           <div className="space-y-1">
-            <label className="text-[#64748B] font-medium">END TIME (UTC / LOCAL):</label>
+            <label className="text-[#64748B] font-medium">END TIME (LOCAL):</label>
             <input
               type="datetime-local"
               value={endDate}
@@ -182,10 +214,10 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
                 id="btn-historical-export-csb"
                 onClick={() => onDownloadCsbRange(filteredFeeds, 'Selected_Range')}
                 disabled={filteredFeeds.length === 0}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-mono text-xs font-medium transition-colors shadow-2xs disabled:opacity-50"
-                title="Export Selected Range as CSB Biosignal Archive"
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono text-xs font-semibold transition-colors shadow-2xs disabled:opacity-50"
+                title="Export Selected Range as Binary CSB"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 text-emerald-700" />
                 <span>Export CSB</span>
               </button>
             )}
@@ -193,15 +225,22 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
         </div>
       </div>
 
-      {/* Main Historical Waveform Workspace */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2 text-xs font-mono text-[#64748B]">
+      {/* Primary Waveform Visualization Workspace */}
+      <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-3 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-[#2563EB]" />
+            <h3 className="text-sm font-semibold text-[#0F172A] tracking-tight">
+              TIMELINE WAVEFORM VISUALIZATION ({filteredFeeds.length} SAMPLES)
+            </h3>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs font-mono text-[#64748B]">
             <Clock className="w-3.5 h-3.5 text-[#2563EB]" />
             <span>
-              Timeline: {filteredFeeds[0] ? formatDateTime(filteredFeeds[0].created_at, 'utc') : '—'} &rarr;{' '}
+              Timeline: {filteredFeeds[0] ? formatDateTime(filteredFeeds[0].created_at, timeDisplayMode) : '—'} &rarr;{' '}
               {filteredFeeds[filteredFeeds.length - 1]
-                ? formatDateTime(filteredFeeds[filteredFeeds.length - 1].created_at, 'utc')
+                ? formatDateTime(filteredFeeds[filteredFeeds.length - 1].created_at, timeDisplayMode)
                 : '—'}
             </span>
           </div>
@@ -217,6 +256,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
           initialMode="stacked"
           showControls={true}
           onToggleChannel={onToggleChannel}
+          timeDisplayMode={timeDisplayMode}
         />
       </div>
 

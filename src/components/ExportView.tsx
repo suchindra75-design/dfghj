@@ -5,11 +5,13 @@ import {
   ChannelStatistics,
   DerivedSamplingInfo,
   ChannelFieldDefinition,
+  TimeDisplayMode,
 } from '../types';
 import { downloadCsvFile } from '../utils/csvExport';
 import { downloadCsbFile } from '../utils/csbExport';
 import { generatePdfReport } from '../utils/pdfExport';
 import { formatDuration, formatDateTime } from '../utils/eegCalculations';
+import { utcToLocalDatetimeLocalString, localDatetimeToUtcIso } from '../utils/timezoneUtils';
 import {
   Download,
   FileText,
@@ -39,6 +41,7 @@ interface ExportViewProps {
   channels: ChannelFieldDefinition[];
   stats: Record<string, ChannelStatistics>;
   samplingInfo: DerivedSamplingInfo;
+  timeDisplayMode?: TimeDisplayMode;
 }
 
 type DatasetScope = 'complete' | 'filtered' | 'custom';
@@ -62,6 +65,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
   channels,
   stats,
   samplingInfo,
+  timeDisplayMode = 'utc',
 }) => {
   const [activeFormatTab, setActiveFormatTab] = useState<ExportFormatTab>('all');
 
@@ -69,10 +73,10 @@ export const ExportView: React.FC<ExportViewProps> = ({
   const [csvScope, setCsvScope] = useState<DatasetScope>('complete');
   const [csvFilteredType, setCsvFilteredType] = useState<FilteredSubtype>('recent300');
   const [csvCustomStart, setCsvCustomStart] = useState<string>(
-    feeds.length > 0 ? feeds[0].created_at.substring(0, 16) : ''
+    feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[0].created_at) : ''
   );
   const [csvCustomEnd, setCsvCustomEnd] = useState<string>(
-    feeds.length > 0 ? feeds[feeds.length - 1].created_at.substring(0, 16) : ''
+    feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[feeds.length - 1].created_at) : ''
   );
   const [csvProgress, setCsvProgress] = useState<CsvProgressState>('idle');
 
@@ -80,10 +84,10 @@ export const ExportView: React.FC<ExportViewProps> = ({
   const [csbScope, setCsbScope] = useState<DatasetScope>('complete');
   const [csbFilteredType, setCsbFilteredType] = useState<FilteredSubtype>('recent300');
   const [csbCustomStart, setCsbCustomStart] = useState<string>(
-    feeds.length > 0 ? feeds[0].created_at.substring(0, 16) : ''
+    feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[0].created_at) : ''
   );
   const [csbCustomEnd, setCsbCustomEnd] = useState<string>(
-    feeds.length > 0 ? feeds[feeds.length - 1].created_at.substring(0, 16) : ''
+    feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[feeds.length - 1].created_at) : ''
   );
   const [csbProgress, setCsbProgress] = useState<CsbProgressState>('idle');
 
@@ -91,10 +95,10 @@ export const ExportView: React.FC<ExportViewProps> = ({
   const [pdfScope, setPdfScope] = useState<DatasetScope>('complete');
   const [pdfFilteredType, setPdfFilteredType] = useState<FilteredSubtype>('recent300');
   const [pdfCustomStart, setPdfCustomStart] = useState<string>(
-    feeds.length > 0 ? feeds[0].created_at.substring(0, 16) : ''
+    feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[0].created_at) : ''
   );
   const [pdfCustomEnd, setPdfCustomEnd] = useState<string>(
-    feeds.length > 0 ? feeds[feeds.length - 1].created_at.substring(0, 16) : ''
+    feeds.length > 0 ? utcToLocalDatetimeLocalString(feeds[feeds.length - 1].created_at) : ''
   );
   const [pdfTitle, setPdfTitle] = useState<string>('EEG Scientific Data Report');
   const [pdfLabName, setPdfLabName] = useState<string>('Biosignal Telemetry Laboratory');
@@ -127,11 +131,11 @@ export const ExportView: React.FC<ExportViewProps> = ({
     // Custom range
     let filtered = feeds;
     if (csvCustomStart) {
-      const sMs = new Date(csvCustomStart).getTime();
+      const sMs = new Date(localDatetimeToUtcIso(csvCustomStart)).getTime();
       if (!isNaN(sMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() >= sMs);
     }
     if (csvCustomEnd) {
-      const eMs = new Date(csvCustomEnd).getTime();
+      const eMs = new Date(localDatetimeToUtcIso(csvCustomEnd)).getTime();
       if (!isNaN(eMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() <= eMs);
     }
     return { feedsToExport: filtered, label: 'Custom Range Telemetry' };
@@ -160,11 +164,11 @@ export const ExportView: React.FC<ExportViewProps> = ({
     // Custom range
     let filtered = feeds;
     if (csbCustomStart) {
-      const sMs = new Date(csbCustomStart).getTime();
+      const sMs = new Date(localDatetimeToUtcIso(csbCustomStart)).getTime();
       if (!isNaN(sMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() >= sMs);
     }
     if (csbCustomEnd) {
-      const eMs = new Date(csbCustomEnd).getTime();
+      const eMs = new Date(localDatetimeToUtcIso(csbCustomEnd)).getTime();
       if (!isNaN(eMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() <= eMs);
     }
     return { feedsToExport: filtered, label: 'Custom Range Telemetry' };
@@ -193,11 +197,11 @@ export const ExportView: React.FC<ExportViewProps> = ({
     // Custom range
     let filtered = feeds;
     if (pdfCustomStart) {
-      const sMs = new Date(pdfCustomStart).getTime();
+      const sMs = new Date(localDatetimeToUtcIso(pdfCustomStart)).getTime();
       if (!isNaN(sMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() >= sMs);
     }
     if (pdfCustomEnd) {
-      const eMs = new Date(pdfCustomEnd).getTime();
+      const eMs = new Date(localDatetimeToUtcIso(pdfCustomEnd)).getTime();
       if (!isNaN(eMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() <= eMs);
     }
     return { feedsToExport: filtered, label: 'Custom Range Telemetry' };
@@ -293,6 +297,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
           title: pdfTitle,
           authorOrFacility: pdfLabName,
           notes: pdfNotes,
+          timeDisplayMode,
         }
       );
 
@@ -511,7 +516,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                       <div className="grid grid-cols-1 gap-2 pt-1">
                         <div>
                           <span className="text-[10px] text-[#64748B] block mb-0.5 font-semibold">
-                            Start Timestamp (UTC):
+                            Start Timestamp (Local):
                           </span>
                           <input
                             type="datetime-local"
@@ -522,7 +527,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                         </div>
                         <div>
                           <span className="text-[10px] text-[#64748B] block mb-0.5 font-semibold">
-                            End Timestamp (UTC):
+                            End Timestamp (Local):
                           </span>
                           <input
                             type="datetime-local"
@@ -732,7 +737,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                       <div className="grid grid-cols-1 gap-2 pt-1">
                         <div>
                           <span className="text-[10px] text-[#64748B] block mb-0.5 font-semibold">
-                            Start Timestamp (UTC):
+                            Start Timestamp (Local):
                           </span>
                           <input
                             type="datetime-local"
@@ -743,7 +748,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                         </div>
                         <div>
                           <span className="text-[10px] text-[#64748B] block mb-0.5 font-semibold">
-                            End Timestamp (UTC):
+                            End Timestamp (Local):
                           </span>
                           <input
                             type="datetime-local"
@@ -955,7 +960,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                       <div className="grid grid-cols-1 gap-2 pt-1">
                         <div>
                           <span className="text-[10px] text-[#64748B] block mb-0.5 font-semibold">
-                            Start Timestamp (UTC):
+                            Start Timestamp (Local):
                           </span>
                           <input
                             type="datetime-local"
@@ -966,7 +971,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                         </div>
                         <div>
                           <span className="text-[10px] text-[#64748B] block mb-0.5 font-semibold">
-                            End Timestamp (UTC):
+                            End Timestamp (Local):
                           </span>
                           <input
                             type="datetime-local"

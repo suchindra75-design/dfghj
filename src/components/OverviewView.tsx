@@ -6,8 +6,9 @@ import {
   DerivedSamplingInfo,
   ChannelFieldDefinition,
   ActiveTab,
+  TimeDisplayMode,
 } from '../types';
-import { formatDuration, formatDateTime } from '../utils/eegCalculations';
+import { formatDuration, formatDateTime, formatTimeForPdfAxis, formatDateForPdf } from '../utils/eegCalculations';
 import { EEGWaveformCanvas } from './EEGWaveformCanvas';
 import { AnimatedNumber } from './AnimatedNumber';
 import {
@@ -37,6 +38,7 @@ interface OverviewViewProps {
   connectionStatus?: 'connected' | 'loading' | 'error' | 'paused';
   isPolling?: boolean;
   lastUpdated?: string | null;
+  timeDisplayMode?: TimeDisplayMode;
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({
@@ -52,7 +54,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   onGeneratePdf,
   connectionStatus = 'connected',
   isPolling = true,
-  lastUpdated,
+  lastUpdated = null,
+  timeDisplayMode = 'utc',
 }) => {
   const latestFeed = feeds.length > 0 ? feeds[feeds.length - 1] : null;
   const firstFeed = feeds.length > 0 ? feeds[0] : null;
@@ -73,9 +76,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
   // Format last synchronization timestamp
   const syncTimeStr = latestFeed
-    ? formatDateTime(latestFeed.created_at, 'utc')
+    ? formatDateTime(latestFeed.created_at, timeDisplayMode)
     : lastUpdated
-    ? formatDateTime(lastUpdated, 'utc')
+    ? formatDateTime(lastUpdated, timeDisplayMode)
     : '—';
 
   return (
@@ -199,10 +202,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             Last Synchronization
           </span>
           <div className="text-base font-semibold font-mono text-[#0F172A] tracking-tight pt-0.5 truncate">
-            {latestFeed ? latestFeed.created_at.substring(11, 19) + ' UTC' : '—'}
+            {latestFeed ? formatTimeForPdfAxis(latestFeed.created_at, timeDisplayMode) : '—'}
           </div>
           <span className="text-[10px] text-[#94A3B8] font-mono block truncate">
-            {latestFeed ? latestFeed.created_at.substring(0, 10) : '—'}
+            {latestFeed ? formatDateForPdf(latestFeed.created_at, timeDisplayMode) : '—'}
           </span>
         </div>
       </motion.div>
@@ -239,6 +242,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             initialMode="stacked"
             showControls={true}
             onToggleChannel={onToggleChannel}
+            timeDisplayMode={timeDisplayMode}
           />
         </div>
       </motion.div>
@@ -344,9 +348,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <div className="flex items-center justify-between text-[11px] font-mono text-[#64748B]">
                 <span className="flex items-center gap-1.5 text-[#6366F1] font-semibold">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#6366F1]" />
-                  Hardware Clock
+                  Samples
                 </span>
-                <span>[samples]</span>
+                <span className="text-[#94A3B8] text-[10px]">count</span>
               </div>
               <div className="text-base font-bold font-mono text-[#0F172A]">
                 {latestFeed?.field5 ? Number(latestFeed.field5).toLocaleString() : '—'}

@@ -41,7 +41,7 @@ export async function saveAndShareFile(
   try {
     await Filesystem.writeFile({
       path,
-      data: content,
+      data: dataToWrite,
       directory,
       encoding,
     });
