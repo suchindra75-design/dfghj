@@ -1,34 +1,147 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+ * Design tokens
+ * Overriding Tailwind's theme variables upgrades every component at once:
+ * typography, corner radii and elevation are defined here, not per screen.
+ * ------------------------------------------------------------------------ */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Softer, more modern corners */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.375rem;
+
+  /* Layered, low-contrast elevation (ink-tinted, never grey smudges) */
+  --shadow-2xs: 0 1px 1px rgb(15 23 42 / 0.03);
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 0.04), 0 2px 6px -2px rgb(15 23 42 / 0.05);
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 14px -4px rgb(15 23 42 / 0.08);
+  --shadow-md: 0 2px 4px rgb(15 23 42 / 0.04), 0 10px 28px -8px rgb(15 23 42 / 0.12);
+  --shadow-lg: 0 4px 8px rgb(15 23 42 / 0.05), 0 18px 44px -12px rgb(15 23 42 / 0.18);
+  --shadow-xl: 0 8px 16px rgb(15 23 42 / 0.06), 0 28px 64px -16px rgb(15 23 42 / 0.24);
+
+  /* Brand */
+  --color-brand-50: #EEF2FF;
+  --color-brand-100: #E0E7FF;
+  --color-brand-200: #C7D2FE;
+  --color-brand-500: #4F46E5;
+  --color-brand-600: #4338CA;
+  --color-ink: #0B1220;
+  --color-canvas: #F4F6FA;
+}
+
 @layer base {
-  html, body {
-    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #F8FAFC;
-    color: #0F172A;
+  html,
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01", "ss03";
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     overflow-x: hidden;
   }
-  
-  code, pre, .font-mono {
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 
-  /* Precision clean medical scrollbar */
+  ::selection {
+    background: #E0E7FF;
+    color: #1E1B4B;
+  }
+
+  /* Keyboard focus: one consistent, visible ring */
+  :focus-visible {
+    outline: 2px solid #6366F1;
+    outline-offset: 2px;
+  }
+  button:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Slim, unobtrusive scrollbars */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: #F8FAFC;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #CBD5E1;
-    border-radius: 3px;
+    background: rgb(100 116 139 / 0.28);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #94A3B8;
+    background: rgb(100 116 139 / 0.45);
+    background-clip: padding-box;
   }
+}
+
+@layer components {
+  /* Elevated content surface */
+  .surface {
+    background: #FFFFFF;
+    border: 1px solid rgb(15 23 42 / 0.06);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Frosted chrome for headers / floating bars */
+  .glass {
+    background: rgb(255 255 255 / 0.72);
+    backdrop-filter: saturate(180%) blur(16px);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+  }
+
+  /* Small uppercase eyebrow label */
+  .eyebrow {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748B;
+  }
+
+  .brand-gradient {
+    background-image: linear-gradient(135deg, #6366F1 0%, #4F46E5 45%, #2563EB 100%);
+  }
+
+  .text-gradient {
+    background-image: linear-gradient(135deg, #0B1220 0%, #334155 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Ambient page backdrop: a faint brand glow at the top of the workspace */
+.app-backdrop {
+  background:
+    radial-gradient(1200px 420px at 70% -120px, rgb(99 102 241 / 0.08), transparent 70%),
+    radial-gradient(900px 360px at 0% -80px, rgb(37 99 235 / 0.06), transparent 70%),
+    var(--color-canvas);
 }
 
 /* Safe area inset helpers for native iOS notches & Android gesture bars */
@@ -45,9 +158,11 @@
   padding-right: env(safe-area-inset-right, 0px);
 }
 
-/* Respect user's motion preferences for 60 FPS performance */
+/* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
-  *, ::before, ::after {
+  *,
+  ::before,
+  ::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

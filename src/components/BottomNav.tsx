@@ -1,13 +1,7 @@
 import React from 'react';
 import { ActiveTab } from '../types';
-import {
-  LayoutDashboard,
-  Activity,
-  History,
-  Table,
-  FileDown,
-  Settings,
-} from 'lucide-react';
+import { LayoutDashboard, Activity, History, Table, FileDown, Settings } from 'lucide-react';
+import { motion } from 'motion/react';
 
 interface BottomNavProps {
   activeTab: ActiveTab;
@@ -15,11 +9,11 @@ interface BottomNavProps {
 }
 
 const NAV_ITEMS: { id: ActiveTab; label: string; icon: React.FC<{ className?: string }> }[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'overview', label: 'Home', icon: LayoutDashboard },
   { id: 'monitor', label: 'Live', icon: Activity },
   { id: 'historical', label: 'History', icon: History },
   { id: 'table', label: 'Table', icon: Table },
-  { id: 'export', label: 'Export', icon: FileDown },
+  { id: 'export', label: 'Reports', icon: FileDown },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -27,10 +21,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
   return (
     <nav
       id="mobile-bottom-navigation"
-      aria-label="Mobile Navigation"
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#E2E8F0] shadow-md pb-safe select-none"
+      aria-label="Main navigation"
+      className="md:hidden fixed inset-x-0 bottom-0 z-40 px-3 pb-safe select-none pointer-events-none"
     >
-      <div className="flex items-center justify-around h-14 px-1">
+      <div className="glass pointer-events-auto mb-2 flex items-center justify-between h-16 px-1.5 rounded-2xl ring-1 ring-[#0F172A]/[0.07] shadow-lg">
         {NAV_ITEMS.map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -38,17 +32,20 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex-1 flex flex-col items-center justify-center h-full py-1 min-h-[44px] transition-colors relative ${
-                isActive
-                  ? 'text-[#2563EB] font-semibold'
-                  : 'text-[#64748B] hover:text-[#0F172A]'
+              aria-current={isActive ? 'page' : undefined}
+              className={`relative flex-1 flex flex-col items-center justify-center gap-1 h-12 rounded-xl transition-colors ${
+                isActive ? 'text-[#4338CA]' : 'text-[#64748B] active:text-[#0B1220]'
               }`}
             >
               {isActive && (
-                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-[#2563EB] rounded-full" />
+                <motion.span
+                  layoutId="bottomNavPill"
+                  className="absolute inset-0 rounded-xl bg-[#EEF2FF]"
+                  transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+                />
               )}
-              <Icon className={`w-4 h-4 transition-transform ${isActive ? 'scale-110' : ''}`} />
-              <span className="text-[10px] font-mono tracking-tight mt-0.5 leading-none">
+              <Icon className="relative w-[19px] h-[19px]" />
+              <span className={`relative text-[10px] leading-none ${isActive ? 'font-semibold' : 'font-medium'}`}>
                 {item.label}
               </span>
             </button>

@@ -808,7 +808,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
 
     // 7. Interactive Crosshair Line
     if (hoverInfo && hoverInfo.x >= layout.padLeft && hoverInfo.x <= width - layout.padRight) {
-      ctx.strokeStyle = '#2563EB';
+      ctx.strokeStyle = '#4F46E5';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
@@ -824,7 +824,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
         Math.min(hoverInfo.x - badgeW / 2, width - layout.padRight - badgeW)
       );
 
-      ctx.fillStyle = '#2563EB';
+      ctx.fillStyle = '#4F46E5';
       ctx.fillRect(badgeX, layout.padTop + layout.plotH + 2, badgeW, 14);
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 8.5px JetBrains Mono, monospace';
@@ -1171,26 +1171,26 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
   return (
     <div
       id="eeg-waveform-container"
-      className="relative flex flex-col w-full bg-white border border-[#E2E8F0] rounded-lg overflow-hidden shadow-xs"
+      className="surface relative flex flex-col w-full overflow-hidden"
     >
       {/* 1. COMPACT WAVEFORM TOOLBAR */}
       {showControls && (
         <div
           id="waveform-toolbar"
-          className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[#F8FAFC] border-b border-[#E2E8F0] text-xs font-mono select-none"
+          className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2.5 bg-[#F8FAFC]/70 border-b border-[#0F172A]/[0.06] text-xs select-none"
         >
           {/* Left Group: Display Mode & Channels */}
           <div className="flex items-center gap-2 flex-wrap">
             {/* Display Mode: Stacked Montage vs Overlay */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[#64748B] text-[10px] uppercase font-semibold">MODE:</span>
-              <div className="flex rounded bg-white p-0.5 border border-[#CBD5E1] shadow-2xs">
+              <span className="eyebrow">Mode</span>
+              <div className="flex rounded-md bg-[#0F172A]/[0.045] p-0.5 ring-1 ring-inset ring-[#0F172A]/[0.04]">
                 <button
                   id="btn-mode-stacked"
                   onClick={() => setMode('stacked')}
                   className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all duration-200 active:scale-95 ${
                     mode === 'stacked'
-                      ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+                      ? 'bg-white text-[#0B1220] font-semibold shadow-xs ring-1 ring-[#0F172A]/[0.06]'
                       : 'text-[#64748B] hover:text-[#0F172A]'
                   }`}
                   title="Stacked Montage Strip (Independent channel tracks)"
@@ -1203,7 +1203,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
                   onClick={() => setMode('overlay')}
                   className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all duration-200 active:scale-95 ${
                     mode === 'overlay'
-                      ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+                      ? 'bg-white text-[#0B1220] font-semibold shadow-xs ring-1 ring-[#0F172A]/[0.06]'
                       : 'text-[#64748B] hover:text-[#0F172A]'
                   }`}
                   title="Overlaid Multi-Channel Coordinate System"
@@ -1222,7 +1222,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-white hover:bg-[#F8FAFC] border border-[#CBD5E1] text-[#0F172A] text-[11px] font-medium shadow-2xs transition-all duration-200 active:scale-95"
                 title="Toggle Active Telemetry Channels"
               >
-                <span className="w-2 h-2 rounded-full bg-[#2563EB]" />
+                <span className="w-2 h-2 rounded-full bg-[#4F46E5]" />
                 <span>
                   Channels ({activeChannels.length}/{channels.length})
                 </span>
@@ -1275,7 +1275,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
                           onClick={() => onToggleChannel?.(ch.fieldKey)}
                           className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-left transition-colors text-[11px] ${
                             ch.visible
-                              ? 'bg-[#EFF6FF] text-[#1D4ED8] font-medium'
+                              ? 'bg-[#EFF6FF] text-[#4338CA] font-medium'
                               : 'text-[#64748B] hover:bg-[#F8FAFC]'
                           }`}
                         >
@@ -1291,7 +1291,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
                             <span className="text-[9px] text-[#94A3B8]">({ch.fieldKey})</span>
                           </div>
                           {ch.visible ? (
-                            <Check className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
+                            <Check className="w-3.5 h-3.5 text-[#4F46E5] shrink-0" />
                           ) : (
                             <span className="text-[9px] text-[#94A3B8] uppercase">Off</span>
                           )}
@@ -1306,8 +1306,8 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
 
           {/* Center Group: Time Range Presets */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[#64748B] text-[10px] uppercase font-semibold">RANGE:</span>
-            <div className="flex rounded bg-white p-0.5 border border-[#CBD5E1] shadow-2xs">
+            <span className="eyebrow">Range</span>
+            <div className="flex rounded-md bg-[#0F172A]/[0.045] p-0.5 ring-1 ring-inset ring-[#0F172A]/[0.04]">
               {rangePresets.map(p => (
                 <button
                   key={p.label}
@@ -1315,7 +1315,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
                   title={`Show the last ${p.label} of data`}
                   className={`px-2 py-0.5 rounded text-[11px] transition-all duration-150 active:scale-95 ${
                     activeWindowPreset === p.label
-                      ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+                      ? 'bg-white text-[#0B1220] font-semibold shadow-xs ring-1 ring-[#0F172A]/[0.06]'
                       : 'text-[#475569] hover:text-[#0F172A]'
                   }`}
                 >
@@ -1326,7 +1326,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
                 onClick={resetZoom}
                 className={`px-2 py-0.5 rounded text-[11px] transition-all duration-150 active:scale-95 ${
                   activeWindowPreset === 'all'
-                    ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+                    ? 'bg-white text-[#0B1220] font-semibold shadow-xs ring-1 ring-[#0F172A]/[0.06]'
                     : 'text-[#475569] hover:text-[#0F172A]'
                 }`}
               >
@@ -1339,7 +1339,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
           <div className="flex items-center gap-2">
             {/* Gain Selector */}
             <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-[#CBD5E1] shadow-2xs">
-              <span className="text-[#64748B] text-[10px] uppercase font-semibold">GAIN:</span>
+              <span className="eyebrow">Gain</span>
               {[0.5, 1, 2, 5].map(g => (
                 <button
                   key={g}
@@ -1399,8 +1399,8 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
       >
         <div className="flex items-center gap-3 shrink-0">
           {hoverInfo ? (
-            <div className="flex items-center gap-1.5 text-[#2563EB] font-semibold">
-              <Crosshair className="w-3.5 h-3.5 animate-pulse text-[#2563EB]" />
+            <div className="flex items-center gap-1.5 text-[#4F46E5] font-semibold">
+              <Crosshair className="w-3.5 h-3.5 animate-pulse text-[#4F46E5]" />
               <span>INSPECTING ENTRY #{hoverInfo.feedItem.entry_id}</span>
               <span className="text-[#94A3B8] font-normal">&bull;</span>
               <span className="text-[#64748B] font-normal">
@@ -1409,7 +1409,7 @@ export const EEGWaveformCanvas: React.FC<EEGWaveformCanvasProps> = ({
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-[#0F172A] font-medium">
-              <Activity className="w-3.5 h-3.5 text-[#2563EB]" />
+              <Activity className="w-3.5 h-3.5 text-[#4F46E5]" />
               <span>LATEST PACKET #{latestFeed?.entry_id ?? '—'}</span>
               <span className="text-[#94A3B8] font-normal">&bull;</span>
               <span className="text-[#64748B] font-normal">

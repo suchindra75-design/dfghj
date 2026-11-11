@@ -338,11 +338,11 @@ export const ExportView: React.FC<ExportViewProps> = ({
   return (
     <div id="export-reports-view" className="space-y-5 max-w-[1700px] mx-auto select-none">
       {/* 1. COMPACT RESEARCH WORKSPACE HEADER & NON-CLINICAL NOTICE */}
-      <div className="bg-white border border-[#E2E8F0] rounded-md p-4 space-y-3 shadow-2xs">
+      <div className="surface p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Download className="w-4 h-4 text-[#2563EB]" />
-            <h2 className="text-sm font-semibold text-[#0F172A] tracking-tight font-mono uppercase">
+            <Download className="w-4 h-4 text-[#4F46E5]" />
+            <h2 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
               Scientific Reports & Data Export Center
             </h2>
           </div>
@@ -388,7 +388,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
 
         {/* Clinical Disclaimer Notice */}
         <div className="p-2.5 rounded bg-[#F8FAFC] border border-[#E2E8F0] flex items-start gap-2 text-[11px] text-[#475569] font-mono">
-          <ShieldCheck className="w-3.5 h-3.5 text-[#2563EB] shrink-0 mt-0.5" />
+          <ShieldCheck className="w-3.5 h-3.5 text-[#4F46E5] shrink-0 mt-0.5" />
           <span>
             <strong className="text-[#0F172A]">Non-Clinical Engineering & Research Notice:</strong> Telemetry data exports (CSV, CSB) and generated scientific PDF reports are intended strictly for hardware verification, academic research, and signal processing workflows. They do not constitute clinical diagnostic findings.
           </span>
@@ -405,17 +405,17 @@ export const ExportView: React.FC<ExportViewProps> = ({
         {/* 1. CSV DATASET EXPORT */}
         {/* ========================================================================= */}
         {(activeFormatTab === 'all' || activeFormatTab === 'csv') && (
-          <div className="bg-white border border-[#E2E8F0] rounded-md p-4 sm:p-5 space-y-4 shadow-2xs flex flex-col justify-between">
+          <div className="surface p-4 sm:p-5 space-y-4 flex flex-col justify-between">
             <div className="space-y-3.5">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-3">
                 <div className="flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-[#2563EB]" />
-                  <h3 className="font-semibold text-[#0F172A] text-xs font-mono tracking-tight uppercase">
+                  <FileSpreadsheet className="w-4 h-4 text-[#4F46E5]" />
+                  <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
                     CSV Export
                   </h3>
                 </div>
-                <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[#2563EB] font-mono text-[10px] font-semibold">
+                <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[#4F46E5] font-mono text-[10px] font-semibold">
                   RFC 4180 CSV
                 </span>
               </div>
@@ -439,7 +439,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                     name="csvScope"
                     checked={csvScope === 'complete'}
                     onChange={() => setCsvScope('complete')}
-                    className="mt-0.5 text-[#2563EB] focus:ring-0"
+                    className="mt-0.5 text-[#4F46E5] focus:ring-0"
                   />
                   <div className="space-y-0.5 flex-1">
                     <div className="flex items-center justify-between">
@@ -467,7 +467,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                     name="csvScope"
                     checked={csvScope === 'filtered'}
                     onChange={() => setCsvScope('filtered')}
-                    className="mt-0.5 text-[#2563EB] focus:ring-0"
+                    className="mt-0.5 text-[#4F46E5] focus:ring-0"
                   />
                   <div className="space-y-2 flex-1">
                     <div className="flex items-center justify-between">
@@ -494,7 +494,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                             onClick={() => setCsvFilteredType(sub.id as FilteredSubtype)}
                             className={`px-2 py-1 rounded text-[11px] text-left border transition-all ${
                               csvFilteredType === sub.id
-                                ? 'bg-[#2563EB] text-white border-[#2563EB] font-semibold shadow-2xs'
+                                ? 'bg-[#2563EB] text-white border-[#4F46E5] font-semibold shadow-2xs'
                                 : 'bg-white text-[#475569] border-[#CBD5E1] hover:bg-[#F8FAFC]'
                             }`}
                           >
@@ -519,7 +519,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                     name="csvScope"
                     checked={csvScope === 'custom'}
                     onChange={() => setCsvScope('custom')}
-                    className="mt-0.5 text-[#2563EB] focus:ring-0"
+                    className="mt-0.5 text-[#4F46E5] focus:ring-0"
                   />
                   <div className="space-y-1.5 flex-1">
                     <div className="flex items-center justify-between">
@@ -539,7 +539,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                             type="datetime-local"
                             value={csvCustomStart}
                             onChange={e => setCsvCustomStart(e.target.value)}
-                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#2563EB] focus:outline-none"
+                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#4F46E5] focus:outline-none"
                           />
                         </div>
                         <div>
@@ -550,7 +550,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                             type="datetime-local"
                             value={csvCustomEnd}
                             onChange={e => setCsvCustomEnd(e.target.value)}
-                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#2563EB] focus:outline-none"
+                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#4F46E5] focus:outline-none"
                           />
                         </div>
                       </div>
@@ -576,7 +576,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
             <div className="space-y-2.5 pt-2">
               {csvProgress !== 'idle' && (
                 <div className="p-2.5 rounded bg-blue-50 border border-blue-200 text-xs font-mono space-y-1.5">
-                  <div className="flex items-center justify-between text-[#2563EB] font-semibold text-[11px]">
+                  <div className="flex items-center justify-between text-[#4F46E5] font-semibold text-[11px]">
                     <span className="flex items-center gap-1.5">
                       {csvProgress === 'ready' ? (
                         <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -597,7 +597,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                   </div>
                   <div className="w-full h-1.5 bg-blue-100 rounded-full overflow-hidden">
                     <div
-                      className={`h-full bg-[#2563EB] transition-all duration-300 ${
+                      className={`h-full bg-[#4F46E5] transition-all duration-300 ${
                         csvProgress === 'preparing'
                           ? 'w-1/3'
                           : csvProgress === 'generating'
@@ -613,7 +613,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                 id="btn-download-csv"
                 onClick={handleDownloadCsv}
                 disabled={csvSelectedData.feedsToExport.length === 0 || (csvProgress !== 'idle' && csvProgress !== 'ready')}
-                className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-mono font-semibold transition-all duration-150 active:scale-98 shadow-2xs"
+                className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-[#4F46E5] hover:bg-[#4338CA] disabled:opacity-50 text-white text-xs font-mono font-semibold transition-all duration-150 active:scale-98 shadow-2xs"
               >
                 <Download className="w-4 h-4" />
                 <span>Download CSV ({csvSelectedData.feedsToExport.length.toLocaleString()})</span>
@@ -626,13 +626,13 @@ export const ExportView: React.FC<ExportViewProps> = ({
         {/* 2. CSB DATASET EXPORT (NEW CSB OPTION) */}
         {/* ========================================================================= */}
         {(activeFormatTab === 'all' || activeFormatTab === 'csb') && (
-          <div className="bg-white border border-[#E2E8F0] rounded-md p-4 sm:p-5 space-y-4 shadow-2xs flex flex-col justify-between ring-1 ring-emerald-500/20">
+          <div className="surface p-4 sm:p-5 space-y-4 flex flex-col justify-between ring-1 ring-emerald-500/20">
             <div className="space-y-3.5">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-3">
                 <div className="flex items-center gap-2">
                   <FileCode2 className="w-4 h-4 text-emerald-600" />
-                  <h3 className="font-semibold text-[#0F172A] text-xs font-mono tracking-tight uppercase">
+                  <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
                     Download CSB
                   </h3>
                 </div>
@@ -852,17 +852,17 @@ export const ExportView: React.FC<ExportViewProps> = ({
         {/* 3. PDF SCIENTIFIC REPORT GENERATION */}
         {/* ========================================================================= */}
         {(activeFormatTab === 'all' || activeFormatTab === 'pdf') && (
-          <div className="bg-white border border-[#E2E8F0] rounded-md p-4 sm:p-5 space-y-4 shadow-2xs flex flex-col justify-between">
+          <div className="surface p-4 sm:p-5 space-y-4 flex flex-col justify-between">
             <div className="space-y-3.5">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-3">
                 <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-[#2563EB]" />
-                  <h3 className="font-semibold text-[#0F172A] text-xs font-mono tracking-tight uppercase">
+                  <FileText className="w-4 h-4 text-[#4F46E5]" />
+                  <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
                     PDF Scientific Report
                   </h3>
                 </div>
-                <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[#2563EB] font-mono text-[10px] font-semibold">
+                <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[#4F46E5] font-mono text-[10px] font-semibold">
                   MULTI-PAGE PDF
                 </span>
               </div>
@@ -886,7 +886,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                     name="pdfScope"
                     checked={pdfScope === 'complete'}
                     onChange={() => setPdfScope('complete')}
-                    className="mt-0.5 text-[#2563EB] focus:ring-0"
+                    className="mt-0.5 text-[#4F46E5] focus:ring-0"
                   />
                   <div className="space-y-0.5 flex-1">
                     <div className="flex items-center justify-between">
@@ -914,7 +914,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                     name="pdfScope"
                     checked={pdfScope === 'filtered'}
                     onChange={() => setPdfScope('filtered')}
-                    className="mt-0.5 text-[#2563EB] focus:ring-0"
+                    className="mt-0.5 text-[#4F46E5] focus:ring-0"
                   />
                   <div className="space-y-2 flex-1">
                     <div className="flex items-center justify-between">
@@ -938,7 +938,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                             onClick={() => setPdfFilteredType(sub.id as FilteredSubtype)}
                             className={`px-2 py-1 rounded text-[11px] text-left border transition-all ${
                               pdfFilteredType === sub.id
-                                ? 'bg-[#2563EB] text-white border-[#2563EB] font-semibold shadow-2xs'
+                                ? 'bg-[#2563EB] text-white border-[#4F46E5] font-semibold shadow-2xs'
                                 : 'bg-white text-[#475569] border-[#CBD5E1] hover:bg-[#F8FAFC]'
                             }`}
                           >
@@ -963,7 +963,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                     name="pdfScope"
                     checked={pdfScope === 'custom'}
                     onChange={() => setPdfScope('custom')}
-                    className="mt-0.5 text-[#2563EB] focus:ring-0"
+                    className="mt-0.5 text-[#4F46E5] focus:ring-0"
                   />
                   <div className="space-y-1.5 flex-1">
                     <div className="flex items-center justify-between">
@@ -983,7 +983,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                             type="datetime-local"
                             value={pdfCustomStart}
                             onChange={e => setPdfCustomStart(e.target.value)}
-                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#2563EB] focus:outline-none"
+                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#4F46E5] focus:outline-none"
                           />
                         </div>
                         <div>
@@ -994,7 +994,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                             type="datetime-local"
                             value={pdfCustomEnd}
                             onChange={e => setPdfCustomEnd(e.target.value)}
-                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#2563EB] focus:outline-none"
+                            className="w-full px-2 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-[11px] shadow-2xs focus:border-[#4F46E5] focus:outline-none"
                           />
                         </div>
                       </div>
@@ -1013,7 +1013,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
                     type="text"
                     value={pdfLabName}
                     onChange={e => setPdfLabName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-xs font-mono shadow-2xs focus:border-[#2563EB] focus:outline-none"
+                    className="w-full px-2.5 py-1.5 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-xs font-mono shadow-2xs focus:border-[#4F46E5] focus:outline-none"
                   />
                 </div>
               </div>
@@ -1023,7 +1023,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
             <div className="space-y-2.5 pt-2">
               {pdfProgress !== 'idle' && (
                 <div className="p-2.5 rounded bg-blue-50 border border-blue-200 text-xs font-mono space-y-1.5">
-                  <div className="flex items-center justify-between text-[#2563EB] font-semibold text-[11px]">
+                  <div className="flex items-center justify-between text-[#4F46E5] font-semibold text-[11px]">
                     <span className="flex items-center gap-1.5">
                       {pdfProgress === 'ready' ? (
                         <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -1049,7 +1049,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
 
                   <div className="w-full h-1.5 bg-blue-100 rounded-full overflow-hidden">
                     <div
-                      className={`h-full bg-[#2563EB] transition-all duration-300 ${
+                      className={`h-full bg-[#4F46E5] transition-all duration-300 ${
                         pdfProgress === 'analyzing'
                           ? 'w-1/4'
                           : pdfProgress === 'waveforms'

@@ -24,7 +24,7 @@ import { ExportView } from './components/ExportView';
 import { SettingsView } from './components/SettingsView';
 import { ErrorAlert } from './components/ErrorAlert';
 import { EEGLoadingState } from './components/EEGLoadingState';
-import { Activity, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const MAX_FEEDS_IN_MEMORY = 100_000;
@@ -279,7 +279,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-[#0F172A] font-sans antialiased pt-safe pb-safe pl-safe pr-safe">
+    <div className="app-backdrop flex h-screen w-screen overflow-hidden text-[#0B1220] font-sans antialiased pt-safe pl-safe pr-safe">
       {/* DESKTOP WORKSTATION SIDEBAR */}
       <div className="hidden md:flex shrink-0">
         <Sidebar
@@ -292,40 +292,45 @@ export default function App() {
       </div>
 
       {/* MOBILE DRAWER NAVIGATION */}
-      {isMobileNavOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
-          <div
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs"
-            onClick={() => setIsMobileNavOpen(false)}
-          />
-          <div className="relative w-64 bg-white h-full z-10 shadow-2xl flex flex-col pt-safe pb-safe">
-            <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="w-5 h-5 text-[#2563EB]" />
-                <span className="font-mono font-bold text-xs text-[#0F172A]">
-                  BRAINMATRIX
-                </span>
-              </div>
+      <AnimatePresence>
+        {isMobileNavOpen && (
+          <div className="fixed inset-0 z-50 md:hidden flex">
+            <motion.div
+              className="fixed inset-0 bg-[#0B1220]/30 backdrop-blur-[2px]"
+              onClick={() => setIsMobileNavOpen(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            />
+            <motion.div
+              className="relative w-72 max-w-[85vw] h-full z-10 bg-[#F8FAFC] shadow-xl flex flex-col pt-safe pb-safe rounded-r-2xl overflow-hidden"
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', stiffness: 420, damping: 40 }}
+            >
               <button
                 onClick={() => setIsMobileNavOpen(false)}
-                className="p-1 rounded text-[#64748B] hover:text-[#0F172A]"
+                className="absolute right-3 top-5 z-10 h-8 w-8 flex items-center justify-center rounded-md text-[#64748B] hover:text-[#0B1220] hover:bg-[#0F172A]/[0.05]"
+                aria-label="Close navigation"
               >
                 <X className="w-5 h-5" />
               </button>
-            </div>
-            <Sidebar
-              activeTab={activeTab}
-              setActiveTab={handleSelectTab}
-              channel={channel}
-              totalRecords={feeds.length}
-              isPolling={isPolling}
-            />
+              <Sidebar
+                activeTab={activeTab}
+                setActiveTab={handleSelectTab}
+                channel={channel}
+                totalRecords={feeds.length}
+                isPolling={isPolling}
+              />
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* MAIN WORKSPACE CONTENT CONTAINER */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#FFFFFF]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* COMPACT TOP HEADER */}
         <TopHeader
           activeTab={activeTab}
@@ -350,7 +355,7 @@ export default function App() {
         {/* SCROLLABLE MAIN CONTENT AREA */}
         <main
           id="main-content-scrollable"
-          className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-20 md:pb-6 space-y-4 md:space-y-5 bg-[#FFFFFF]"
+          className="flex-1 overflow-y-auto px-3 pt-4 sm:px-5 md:px-8 md:pt-6 pb-28 md:pb-8 space-y-4 md:space-y-5"
         >
           {/* Error Alert Banner */}
           {error && (
@@ -365,8 +370,6 @@ export default function App() {
           {/* Initial Loading Screen with Subtle Clinical EEG Waveform Animation */}
           {isLoading && feeds.length === 0 ? (
             <EEGLoadingState
-              message="Synchronizing EEG telemetry..."
-              subtext="Calibrating baseline voltage and streaming telemetry packets from Channel 3469764"
               channelId={channel?.id ? String(channel.id) : '3469764'}
             />
           ) : (
@@ -472,7 +475,7 @@ export default function App() {
         <BottomNav activeTab={activeTab} setActiveTab={handleSelectTab} />
 
         {/* COMPACT WORKSTATION STATUS FOOTER (Hidden on mobile to prioritize screen space) */}
-        <footer className="hidden md:flex h-8 bg-[#F8FAFC] border-t border-[#E2E8F0] px-4 md:px-6 items-center justify-between text-[11px] font-mono text-[#64748B] shrink-0 select-none">
+        <footer className="hidden md:flex h-9 border-t border-[#0F172A]/[0.06] bg-white/50 backdrop-blur px-6 md:px-8 items-center justify-between text-[11.5px] text-[#64748B] shrink-0 select-none">
           <div className="flex items-center gap-3 min-w-0 overflow-hidden whitespace-nowrap">
             <span>
               ThingSpeak Channel:{' '}

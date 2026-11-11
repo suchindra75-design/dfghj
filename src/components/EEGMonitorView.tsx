@@ -14,7 +14,11 @@ import {
   Sliders,
   ShieldCheck,
   CheckCircle2,
+  Bluetooth,
+  Radio,
+  Cloud,
 } from 'lucide-react';
+import { Segmented } from './ui/Segmented';
 
 interface EEGMonitorViewProps {
   channel: ThingSpeakChannel | null;
@@ -61,138 +65,118 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
     : windowSamples === 0 ? feeds : feeds.slice(-windowSamples);
   const latestFeed = activeFeeds.length > 0 ? activeFeeds[activeFeeds.length - 1] : null;
 
+  const live = isBle ? Boolean(ble?.isStreaming) : isPolling;
+  const cadenceSec = (() => {
+    const tail = feeds.slice(-200);
+    const d: number[] = [];
+    for (let i = 1; i < tail.length; i++) {
+      const dt = (new Date(tail[i].created_at).getTime() - new Date(tail[i - 1].created_at).getTime()) / 1000;
+      if (dt > 0) d.push(dt);
+    }
+    if (!d.length) return null;
+    d.sort((x, y) => x - y);
+    return d[Math.floor(d.length / 2)];
+  })();
+  const statusTitle = isBle
+    ? ble?.isStreaming
+      ? 'Streaming from BioAmp_Sleep'
+      : 'Bluetooth idle'
+    : isPolling
+    ? 'Live cloud stream'
+    : 'Stream paused';
+  const statusDetail = isBle
+    ? ble?.isStreaming
+      ? `${ble.status.receivedHz > 0 ? `~${ble.status.receivedHz.toFixed(0)} Hz` : 'Waiting for samples'} · ${ble.status.sampleCount.toLocaleString()} samples`
+      : 'Scan and connect to the mask to start streaming'
+    : `${cadenceSec ? `One sample every ~${cadenceSec.toFixed(1)}s` : 'ThingSpeak channel'} · latest #${latestFeed?.entry_id ?? '—'}`;
+
   return (
     <div id="eeg-monitor-view" className="space-y-4">
       {/* Phase 1 BLE connection controls (Bluetooth source only) */}
       {isBle && ble && <BleConnectBar ble={ble} />}
 
-      {/* 1. TOP COMPACT MONITOR CONTROL BAR */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] select-none text-xs font-mono">
-        {/* Left: Stream Status & Toggle */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+      {/* 1. MONITOR CONTROL CARD */}
+      <div className="surface p-4 space-y-4 select-none">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
             <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                isBle
-                  ? ble?.isStreaming
-                    ? 'bg-[#16A34A] animate-pulse'
-                    : 'bg-[#D97706]'
-                  : isPolling
-                    ? 'bg-[#16A34A] animate-pulse'
-                    : 'bg-[#D97706]'
+              className={`mt-0.5 h-9 w-9 shrink-0 rounded-md flex items-center justify-center ring-1 ${
+                live ? 'bg-emerald-50 text-emerald-600 ring-emerald-100' : 'bg-amber-50 text-amber-600 ring-amber-100'
               }`}
-            />
-            <span className="font-bold text-[#0F172A] tracking-tight">
-              {isBle
-                ? ble?.isStreaming
-                  ? 'LIVE BLE DATA — PREVIEW'
-                  : 'BLE STREAM IDLE — CONNECT DEVICE'
-                : isPolling
-                  ? 'LIVE OSCILLOSCOPE STREAM'
-                  : 'STREAM ACQUISITION PAUSED'}
+            >
+              {isBle ? <Bluetooth className="w-4 h-4" /> : <Radio className="w-4 h-4" />}
             </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-semibold tracking-tight text-[#0B1220] truncate">{statusTitle}</span>
+                {live && (
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60 animate-ping" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                )}
+              </div>
+              <div className="text-[12px] text-[#64748B] mt-0.5 line-clamp-2">{statusDetail}</div>
+            </div>
           </div>
 
-          <button
-            id="btn-monitor-pause-resume"
-            onClick={() => setIsPolling(!isPolling)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-              isPolling
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-            }`}
-          >
-            {isPolling ? <Pause className="w-3 h-3 text-emerald-600" /> : <Play className="w-3 h-3 text-amber-600" />}
-            <span>{isPolling ? 'Pause' : 'Resume'}</span>
-          </button>
+          {!isBle && (
+            <button
+              id="btn-monitor-pause-resume"
+              onClick={() => setIsPolling(!isPolling)}
+              className="shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-md text-[12.5px] font-medium bg-white text-[#334155] ring-1 ring-[#0F172A]/10 shadow-2xs hover:text-[#0B1220] hover:bg-[#F8FAFC] transition-colors"
+            >
+              {isPolling ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              {isPolling ? 'Pause' : 'Resume'}
+            </button>
+          )}
         </div>
 
-        {/* Center: Data Source Selector (Phase 1 BLE, additive) */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[#64748B] text-[10px] uppercase font-semibold">SOURCE:</span>
-          <div className="flex rounded bg-white p-0.5 border border-[#CBD5E1] shadow-2xs">
-            {(
-              [
-                { id: 'thingspeak', label: 'ThingSpeak' },
-                { id: 'bluetooth', label: 'Bluetooth' },
-              ] as const
-            ).map(s => (
-              <button
-                key={s.id}
-                onClick={() => onDataSourceChange?.(s.id)}
-                className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
-                  dataSource === s.id
-                    ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
-                    : 'text-[#475569] hover:text-[#0F172A]'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+          <div className="flex items-center gap-2.5">
+            <span className="eyebrow">Source</span>
+            <Segmented<DataSourceMode>
+              ariaLabel="Data source"
+              value={dataSource}
+              onChange={v => onDataSourceChange?.(v)}
+              options={[
+                { value: 'thingspeak', label: 'Cloud', icon: Cloud },
+                { value: 'bluetooth', label: 'Bluetooth', icon: Bluetooth },
+              ]}
+            />
           </div>
-        </div>
 
-        {/* Center: Buffer Presets (ThingSpeak meaning unchanged; BLE uses time-based presets) */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[#64748B] text-[10px] uppercase font-semibold">FEED BUFFER:</span>
-          <div className="flex rounded bg-white p-0.5 border border-[#CBD5E1] shadow-2xs">
-            {!isBle
-              ? [
-                  { count: 100, label: '100 pts' },
-                  { count: 300, label: '300 pts' },
-                  { count: 600, label: '600 pts' },
-                  { count: 1200, label: '1.2k pts' },
-                  { count: 0, label: `All (${feeds.length})` },
-                ].map(b => (
-                  <button
-                    key={b.count}
-                    onClick={() => setWindowSamples(b.count)}
-                    className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
-                      windowSamples === b.count
-                        ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
-                        : 'text-[#475569] hover:text-[#0F172A]'
-                    }`}
-                  >
-                    {b.label}
-                  </button>
-                ))
-              : [
-                  { secs: 5, label: '5 sec' },
-                  { secs: 10, label: '10 sec' },
-                  { secs: 30, label: '30 sec' },
-                ].map(b => (
-                  <button
-                    key={b.secs}
-                    onClick={() => setBleWindowSec(b.secs)}
-                    className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
-                      bleWindowSec === b.secs
-                        ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
-                        : 'text-[#475569] hover:text-[#0F172A]'
-                    }`}
-                  >
-                    {b.label}
-                  </button>
-                ))}
-          </div>
-        </div>
-
-        {/* Right: Telemetry Cadence & Latest Sync */}
-        <div className="flex items-center gap-3 text-[11px] text-[#64748B]">
-          <div className="flex items-center gap-1">
-            <Clock className="w-3 h-3 text-[#2563EB]" />
-            {!isBle ? (
-              <span>Cadence: <strong className="text-[#0F172A]">~20.6s</strong></span>
-            ) : (
-              <span>
-                BLE: <strong className="text-[#0F172A]">
-                  {ble && ble.status.receivedHz > 0 ? `~${ble.status.receivedHz.toFixed(0)} Hz observed` : 'awaiting stream'}
-                </strong>
-              </span>
-            )}
-          </div>
-          <span className="text-[#CBD5E1]">&bull;</span>
-          <div>
-            Latest: <strong className="text-[#0F172A]">#{latestFeed?.entry_id ?? '—'}</strong>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="eyebrow">Window</span>
+            <div className="overflow-x-auto -mx-1 px-1">
+              {!isBle ? (
+                <Segmented<number>
+                  ariaLabel="Samples to load"
+                  size="sm"
+                  value={windowSamples}
+                  onChange={setWindowSamples}
+                  options={[
+                    { value: 100, label: '100' },
+                    { value: 300, label: '300' },
+                    { value: 600, label: '600' },
+                    { value: 1200, label: '1.2k' },
+                    { value: 0, label: 'All' },
+                  ]}
+                />
+              ) : (
+                <Segmented<number>
+                  ariaLabel="Seconds to show"
+                  size="sm"
+                  value={bleWindowSec}
+                  onChange={setBleWindowSec}
+                  options={[
+                    { value: 5, label: '5s' },
+                    { value: 10, label: '10s' },
+                    { value: 30, label: '30s' },
+                  ]}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -224,7 +208,7 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1 text-xs font-mono">
           <div className="flex items-center gap-2">
-            <Sliders className="w-3.5 h-3.5 text-[#2563EB]" />
+            <Sliders className="w-3.5 h-3.5 text-[#4F46E5]" />
             <span className="font-semibold text-[#0F172A] uppercase tracking-wider text-[11px]">
               LEAD TELEMETRY STATUS & LIVE AMPLITUDES
             </span>
@@ -259,7 +243,7 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
                 onClick={() => onToggleChannel(ch.fieldKey)}
                 className={`p-2.5 rounded-lg border transition-all cursor-pointer select-none font-mono ${
                   ch.visible
-                    ? 'bg-white border-[#CBD5E1] hover:border-[#2563EB] shadow-2xs'
+                    ? 'bg-white border-[#CBD5E1] hover:border-[#4F46E5] shadow-2xs'
                     : 'bg-[#F8FAFC] border-[#E2E8F0] opacity-40 hover:opacity-75'
                 }`}
               >
@@ -274,7 +258,7 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
                     </span>
                   </div>
                   {ch.visible ? (
-                    <Eye className="w-3 h-3 text-[#2563EB] shrink-0" />
+                    <Eye className="w-3 h-3 text-[#4F46E5] shrink-0" />
                   ) : (
                     <EyeOff className="w-3 h-3 text-[#94A3B8] shrink-0" />
                   )}
@@ -305,7 +289,7 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
       <div className="p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-[#64748B]">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-[#0F172A] font-semibold">
-            <Activity className="w-3.5 h-3.5 text-[#2563EB]" />
+            <Activity className="w-3.5 h-3.5 text-[#4F46E5]" />
             <span>Channel ID: #{channel?.id || '3469764'}</span>
           </span>
           <span className="text-[#CBD5E1]">&bull;</span>

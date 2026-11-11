@@ -47,7 +47,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Top Banner */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#E2E8F0]">
         <div>
-          <h2 className="text-base font-bold text-[#0F172A] tracking-tight font-mono">
+          <h2 className="text-[17px] font-semibold text-[#0B1220] tracking-tight">
             WORKSTATION CONFIGURATION & HARDWARE SETTINGS
           </h2>
           <p className="text-xs text-[#64748B] font-mono mt-0.5">
@@ -70,8 +70,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-[#2563EB]" />
-                <h3 className="text-xs font-semibold text-[#0F172A] uppercase tracking-wider font-mono">
+                <Sliders className="w-4 h-4 text-[#4F46E5]" />
+                <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
                   ACTIVE TELEMETRY CHANNELS ({channels.filter(c => c.visible).length}/{channels.length} ENABLED)
                 </h3>
               </div>
@@ -99,7 +99,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         <span className="text-[10px] font-mono text-[#64748B] px-1.5 py-0.2 rounded bg-[#F1F5F9]">
                           {ch.fieldKey}
                         </span>
-                        <span className="text-[10px] font-mono text-[#2563EB] font-medium">
+                        <span className="text-[10px] font-mono text-[#4F46E5] font-medium">
                           [{ch.unit}]
                         </span>
                       </div>
@@ -113,7 +113,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     onClick={() => onToggleChannel(ch.fieldKey)}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono border transition-colors ${
                       ch.visible
-                        ? 'bg-blue-50 border-blue-200 text-[#2563EB] font-semibold'
+                        ? 'bg-blue-50 border-blue-200 text-[#4F46E5] font-semibold'
                         : 'bg-[#F8FAFC] border-[#E2E8F0] text-[#94A3B8]'
                     }`}
                   >
@@ -137,13 +137,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {/* Section 2: Display & Unit Preferences */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#2563EB]" />
-              <h3 className="text-xs font-semibold text-[#0F172A] uppercase tracking-wider font-mono">
+              <Clock className="w-4 h-4 text-[#4F46E5]" />
+              <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
                 DISPLAY & LOCALIZATION PREFERENCES
               </h3>
             </div>
 
-            <div className="p-4 border border-[#E2E8F0] rounded-lg bg-white shadow-2xs space-y-4 text-xs font-mono">
+            <div className="surface p-4 space-y-4 text-xs font-mono">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[#64748B] font-semibold block">
@@ -154,7 +154,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       onClick={() => setTimeDisplayMode?.('utc')}
                       className={`flex-1 py-1.5 px-3 rounded border text-xs font-medium transition-colors ${
                         timeDisplayMode === 'utc'
-                          ? 'bg-[#2563EB] border-[#2563EB] text-white font-semibold shadow-2xs'
+                          ? 'bg-[#2563EB] border-[#4F46E5] text-white font-semibold shadow-2xs'
                           : 'bg-white border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC]'
                       }`}
                     >
@@ -164,7 +164,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       onClick={() => setTimeDisplayMode?.('local')}
                       className={`flex-1 py-1.5 px-3 rounded border text-xs font-medium transition-colors ${
                         timeDisplayMode === 'local'
-                          ? 'bg-[#2563EB] border-[#2563EB] text-white font-semibold shadow-2xs'
+                          ? 'bg-[#2563EB] border-[#4F46E5] text-white font-semibold shadow-2xs'
                           : 'bg-white border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC]'
                       }`}
                     >
@@ -182,7 +182,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       onClick={() => setVoltageUnit('uV')}
                       className={`flex-1 py-1.5 px-3 rounded border text-xs font-medium transition-colors ${
                         voltageUnit === 'uV'
-                          ? 'bg-[#2563EB] border-[#2563EB] text-white font-semibold shadow-2xs'
+                          ? 'bg-[#2563EB] border-[#4F46E5] text-white font-semibold shadow-2xs'
                           : 'bg-white border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC]'
                       }`}
                     >
@@ -192,7 +192,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       onClick={() => setVoltageUnit('mV')}
                       className={`flex-1 py-1.5 px-3 rounded border text-xs font-medium transition-colors ${
                         voltageUnit === 'mV'
-                          ? 'bg-[#2563EB] border-[#2563EB] text-white font-semibold shadow-2xs'
+                          ? 'bg-[#2563EB] border-[#4F46E5] text-white font-semibold shadow-2xs'
                           : 'bg-white border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC]'
                       }`}
                     >
@@ -205,7 +205,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="pt-2 border-t border-[#E2E8F0] flex justify-end">
                 <button
                   onClick={handleSavePreferences}
-                  className="px-4 py-2 rounded bg-[#2563EB] hover:bg-blue-700 text-white font-semibold transition-colors shadow-2xs"
+                  className="px-4 py-2 rounded bg-[#4F46E5] hover:bg-[#4338CA] text-white font-semibold transition-colors shadow-2xs"
                 >
                   Save Preferences
                 </button>
@@ -219,13 +219,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {/* ThingSpeak Endpoint Details */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Radio className="w-4 h-4 text-[#2563EB]" />
-              <h3 className="text-xs font-semibold text-[#0F172A] uppercase tracking-wider font-mono">
+              <Radio className="w-4 h-4 text-[#4F46E5]" />
+              <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
                 THINGSPEAK CONNECTION
               </h3>
             </div>
 
-            <div className="p-4 border border-[#E2E8F0] rounded-lg bg-white shadow-2xs space-y-3 text-xs font-mono">
+            <div className="surface p-4 space-y-3 text-xs font-mono">
               <div className="space-y-2">
                 <div className="flex justify-between pb-1.5 border-b border-[#E2E8F0]">
                   <span className="text-[#64748B]">Channel ID:</span>
@@ -281,7 +281,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           {/* Research Compliance Notice */}
           <div className="p-4 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] space-y-2 text-xs">
-            <div className="flex items-center gap-2 text-[#2563EB] font-mono font-semibold">
+            <div className="flex items-center gap-2 text-[#4F46E5] font-mono font-semibold">
               <ShieldCheck className="w-4 h-4" />
               <span>NON-CLINICAL SPECIFICATION</span>
             </div>

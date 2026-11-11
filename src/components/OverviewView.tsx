@@ -13,6 +13,9 @@ import { EEGWaveformCanvas } from './EEGWaveformCanvas';
 import { AnimatedNumber } from './AnimatedNumber';
 import {
   Activity,
+  Clock,
+  Layers,
+  RefreshCw,
   Radio,
   ChevronRight,
   Download,
@@ -88,126 +91,75 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-3 pb-3 border-b border-[#E2E8F0]"
+        className="flex flex-col sm:flex-row sm:items-end justify-between gap-3"
       >
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#0F172A]">
+          <div className="eyebrow text-[#4F46E5]">{channel?.name || 'Sleep monitoring'}</div>
+          <h1 className="text-[26px] sm:text-[30px] font-semibold tracking-[-0.02em] text-gradient leading-tight mt-1">
             EEG Monitoring
           </h1>
-          <p className="text-xs text-[#64748B] mt-0.5 font-normal">
-            Real-time telemetry overview
+          <p className="text-[13px] text-[#64748B] mt-1">
+            Live telemetry from channel #{channel?.id || '3469764'}
           </p>
         </div>
 
-        {/* CONNECTION STATUS: Small dot, calm indicator */}
-        <div className="flex items-center gap-4 text-xs font-mono">
-          <div className="flex items-center gap-2">
-            {connectionStatus === 'error' ? (
-              <span className="flex items-center gap-1.5 text-[#DC2626] font-medium">
-                <span className="w-2 h-2 rounded-full bg-[#DC2626]" />
-                <span>Connection unavailable</span>
-              </span>
-            ) : connectionStatus === 'loading' ? (
-              <span className="flex items-center gap-1.5 text-[#D97706] font-medium">
-                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse" />
-                <span>Synchronizing</span>
-              </span>
-            ) : isPolling ? (
-              <span className="flex items-center gap-1.5 text-[#16A34A] font-medium">
-                <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse" />
-                <span>Connected</span>
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-[#64748B] font-medium">
-                <span className="w-2 h-2 rounded-full bg-[#94A3B8]" />
-                <span>Polling Paused</span>
-              </span>
-            )}
-          </div>
-
-          <span className="text-[#CBD5E1]">&bull;</span>
-          <span className="text-[#64748B]">
-            CH #{channel?.id || '3469764'}
-          </span>
-        </div>
+        <StatusPill connectionStatus={connectionStatus} isPolling={isPolling} />
       </motion.div>
 
-      {/* 2. COMPACT STATISTICS AREA (Typography and generous whitespace, prominent but not oversized numbers) */}
+      {/* 2. KEY METRICS */}
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
-        className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6 py-2 border-b border-[#F1F5F9]"
+        className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-5 gap-3"
       >
-        {/* Total Samples */}
-        <div className="space-y-0.5">
-          <span className="text-[11px] font-mono text-[#64748B] uppercase tracking-wider block">
-            Total Samples
-          </span>
-          <div className="text-xl font-bold font-mono text-[#0F172A] tracking-tight">
-            <AnimatedNumber value={feeds.length} decimals={0} />
-          </div>
-          <span className="text-[10px] text-[#94A3B8] font-mono block">
-            Telemetry entries
-          </span>
-        </div>
-
-        {/* Recording Duration */}
-        <div className="space-y-0.5">
-          <span className="text-[11px] font-mono text-[#64748B] uppercase tracking-wider block">
-            Recording Duration
-          </span>
-          <div className="text-xl font-bold font-mono text-[#0F172A] tracking-tight">
-            {formatDuration(durationSec)}
-          </div>
-          <span className="text-[10px] text-[#94A3B8] font-mono block">
-            <AnimatedNumber value={durationSec} decimals={0} suffix="s total elapsed" />
-          </span>
-        </div>
-
-        {/* Active Channels */}
-        <div className="space-y-0.5">
-          <span className="text-[11px] font-mono text-[#64748B] uppercase tracking-wider block">
-            Active Channels
-          </span>
-          <div className="text-xl font-bold font-mono text-[#0F172A] tracking-tight">
-            <span>{activeChannelsCount}</span>
-            <span className="text-sm font-normal text-[#94A3B8] font-mono"> / {channels.length}</span>
-          </div>
-          <span className="text-[10px] text-[#94A3B8] font-mono block">
-            Montage enabled
-          </span>
-        </div>
-
-        {/* Latest Reading */}
-        <div className="space-y-0.5">
-          <span className="text-[11px] font-mono text-[#64748B] uppercase tracking-wider block">
-            Latest Reading
-          </span>
-          <div className="text-xl font-bold font-mono text-[#0F172A] tracking-tight whitespace-nowrap tabular-nums">
-            {eegValNum !== null && !isNaN(eegValNum) ? (
+        <MetricCard
+          icon={Database}
+          tint="indigo"
+          label="Samples"
+          value={<AnimatedNumber value={feeds.length} decimals={0} />}
+          hint="Telemetry entries"
+        />
+        <MetricCard
+          icon={Clock}
+          tint="sky"
+          label="Duration"
+          value={formatDuration(durationSec)}
+          hint={`${durationSec.toLocaleString()}s recorded`}
+        />
+        <MetricCard
+          icon={Layers}
+          tint="violet"
+          label="Channels"
+          value={
+            <>
+              {activeChannelsCount}
+              <span className="text-[15px] font-medium text-[#94A3B8]"> / {channels.length}</span>
+            </>
+          }
+          hint="Shown in montage"
+        />
+        <MetricCard
+          icon={Activity}
+          tint="emerald"
+          label="Latest EEG"
+          value={
+            eegValNum !== null && !isNaN(eegValNum) ? (
               <AnimatedNumber value={eegValNum} decimals={2} suffix=" µV" />
             ) : (
               '—'
-            )}
-          </div>
-          <span className="text-[10px] text-[#94A3B8] font-mono block truncate">
-            {latestFeed ? `Entry #${latestFeed.entry_id}` : 'Awaiting data'}
-          </span>
-        </div>
-
-        {/* Last Synchronization */}
-        <div className="space-y-0.5 col-span-2 md:col-span-1">
-          <span className="text-[11px] font-mono text-[#64748B] uppercase tracking-wider block">
-            Last Synchronization
-          </span>
-          <div className="text-base font-semibold font-mono text-[#0F172A] tracking-tight pt-0.5 truncate">
-            {latestFeed ? formatTimeForPdfAxis(latestFeed.created_at, timeDisplayMode) : '—'}
-          </div>
-          <span className="text-[10px] text-[#94A3B8] font-mono block truncate">
-            {latestFeed ? formatDateForPdf(latestFeed.created_at, timeDisplayMode) : '—'}
-          </span>
-        </div>
+            )
+          }
+          hint={latestFeed ? `Entry #${latestFeed.entry_id}` : 'Awaiting data'}
+        />
+        <MetricCard
+          icon={RefreshCw}
+          tint="amber"
+          label="Last sync"
+          value={latestFeed ? formatTimeForPdfAxis(latestFeed.created_at, timeDisplayMode) : '—'}
+          hint={latestFeed ? formatDateForPdf(latestFeed.created_at, timeDisplayMode) : '—'}
+          className="col-span-2 sm:col-span-1"
+        />
       </motion.div>
 
       {/* 3. MAIN AREA: EEG WAVEFORM (PRIORITY 1) */}
@@ -219,14 +171,14 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-[#2563EB]" />
-            <h2 className="text-xs font-bold font-mono text-[#0F172A] tracking-wider uppercase">
+            <Activity className="w-4 h-4 text-[#4F46E5]" />
+            <h2 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
               EEG Telemetry Stream
             </h2>
           </div>
           <button
             onClick={() => onNavigateTab('monitor')}
-            className="text-xs text-[#2563EB] hover:text-blue-800 font-mono font-medium flex items-center gap-1 transition-all duration-150 active:scale-95"
+            className="text-xs text-[#4F46E5] hover:text-[#3730A3] font-mono font-medium flex items-center gap-1 transition-all duration-150 active:scale-95"
           >
             <span>Live Monitor Workspace</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -258,7 +210,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         <div className="lg:col-span-2 space-y-2.5">
           <div className="flex items-center justify-between pb-1">
             <span className="text-xs font-mono font-semibold text-[#0F172A] uppercase tracking-wider flex items-center gap-1.5">
-              <Radio className="w-3.5 h-3.5 text-[#2563EB]" />
+              <Radio className="w-3.5 h-3.5 text-[#4F46E5]" />
               Current Telemetry Packet (Entry #{latestFeed?.entry_id ?? '—'})
             </span>
             <span className="text-[11px] font-mono text-[#64748B]">
@@ -408,7 +360,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <button
                 id="btn-overview-pdf"
                 onClick={onGeneratePdf}
-                className="flex items-center justify-center gap-1 py-2 px-2 rounded bg-[#2563EB] hover:bg-blue-700 text-white text-[11px] font-mono font-medium transition-all duration-150 active:scale-95 shadow-2xs"
+                className="flex items-center justify-center gap-1 py-2 px-2 rounded bg-[#4F46E5] hover:bg-[#4338CA] text-white text-[11px] font-mono font-medium transition-all duration-150 active:scale-95 shadow-2xs"
                 title="Generate Multi-Page PDF Report"
               >
                 <FileText className="w-3.5 h-3.5 text-white" />
@@ -453,8 +405,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-[#2563EB]" />
-            <h3 className="text-xs font-mono font-bold text-[#0F172A] uppercase tracking-wider">
+            <TrendingUp className="w-4 h-4 text-[#4F46E5]" />
+            <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#0B1220]">
               Channel Descriptive Statistics (N = {feeds.length.toLocaleString()})
             </h3>
           </div>
@@ -485,7 +437,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                     onClick={() => onToggleChannel(ch.fieldKey)}
                     className={`text-[9px] font-mono px-1 py-0.5 rounded border transition-all duration-150 active:scale-95 ${
                       ch.visible
-                        ? 'bg-blue-50 text-[#2563EB] border-blue-200 font-medium'
+                        ? 'bg-blue-50 text-[#4F46E5] border-blue-200 font-medium'
                         : 'bg-[#F8FAFC] text-[#94A3B8] border-[#E2E8F0]'
                     }`}
                   >
@@ -530,7 +482,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       {/* 6. TECHNICAL METHODOLOGY & COMPLIANCE (PRIORITY 4 - SECONDARY INFORMATION) */}
       <div className="p-3 rounded bg-[#F8FAFC] border border-[#E2E8F0] text-xs space-y-1">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-[#2563EB]" />
+          <ShieldCheck className="w-4 h-4 text-[#4F46E5]" />
           <span className="font-semibold text-[#0F172A] tracking-tight">
             Telemetry Sampling & Non-Clinical Integrity Note
           </span>
@@ -540,5 +492,55 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </p>
       </div>
     </div>
+  );
+};
+
+const TINTS: Record<string, string> = {
+  indigo: 'bg-[#EEF2FF] text-[#4F46E5] ring-[#E0E7FF]',
+  sky: 'bg-[#F0F9FF] text-[#0284C7] ring-[#E0F2FE]',
+  violet: 'bg-[#F5F3FF] text-[#7C3AED] ring-[#EDE9FE]',
+  emerald: 'bg-[#ECFDF5] text-[#059669] ring-[#D1FAE5]',
+  amber: 'bg-[#FFFBEB] text-[#D97706] ring-[#FEF3C7]',
+};
+
+const MetricCard: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  tint: keyof typeof TINTS;
+  label: string;
+  value: React.ReactNode;
+  hint: string;
+  className?: string;
+}> = ({ icon: Icon, tint, label, value, hint, className = '' }) => (
+  <div className={`surface p-4 flex flex-col gap-3 min-w-0 ${className}`}>
+    <div className="flex items-center justify-between">
+      <span className="eyebrow">{label}</span>
+      <span className={`h-7 w-7 rounded-md ring-1 flex items-center justify-center ${TINTS[tint]}`}>
+        <Icon className="w-3.5 h-3.5" />
+      </span>
+    </div>
+    <div className="text-[20px] sm:text-[22px] font-semibold tracking-tight text-[#0B1220] font-mono whitespace-nowrap truncate leading-none">
+      {value}
+    </div>
+    <div className="text-[11.5px] text-[#94A3B8] truncate">{hint}</div>
+  </div>
+);
+
+const StatusPill: React.FC<{ connectionStatus: string; isPolling: boolean }> = ({ connectionStatus, isPolling }) => {
+  const cfg =
+    connectionStatus === 'error'
+      ? { text: 'Connection unavailable', dot: 'bg-rose-500', cls: 'bg-rose-50 text-rose-700 ring-rose-200', ping: false }
+      : connectionStatus === 'loading'
+      ? { text: 'Synchronizing', dot: 'bg-amber-500', cls: 'bg-amber-50 text-amber-700 ring-amber-200', ping: true }
+      : isPolling
+      ? { text: 'Connected · live', dot: 'bg-emerald-500', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200', ping: true }
+      : { text: 'Sync paused', dot: 'bg-slate-400', cls: 'bg-white text-[#64748B] ring-[#0F172A]/10', ping: false };
+  return (
+    <span className={`inline-flex items-center gap-2 self-start sm:self-auto h-8 px-3 rounded-full text-[12px] font-medium ring-1 ${cfg.cls}`}>
+      <span className="relative flex h-2 w-2">
+        {cfg.ping && <span className={`absolute inline-flex h-full w-full rounded-full ${cfg.dot} opacity-50 animate-ping`} />}
+        <span className={`relative inline-flex h-2 w-2 rounded-full ${cfg.dot}`} />
+      </span>
+      {cfg.text}
+    </span>
   );
 };

@@ -1,8 +1,6 @@
 import React from 'react';
 import { ActiveTab, ThingSpeakChannel, TimeDisplayMode } from '../types';
 import {
-  CheckCircle2,
-  AlertCircle,
   Clock,
   RefreshCw,
   Pause,
@@ -11,7 +9,6 @@ import {
   FileText,
   Menu,
   X,
-  Database,
 } from 'lucide-react';
 import { formatDateTime } from '../utils/eegCalculations';
 
@@ -38,27 +35,27 @@ interface TopHeaderProps {
 const TAB_METADATA: Record<ActiveTab, { title: string; subtitle: string }> = {
   overview: {
     title: 'Overview',
-    subtitle: 'System Telemetry & Multi-Channel Health Summary',
+    subtitle: 'Recording summary and live signal',
   },
   monitor: {
-    title: 'Live EEG Monitor',
-    subtitle: 'High-Speed Real-Time Oscilloscope & Channel Inspector',
+    title: 'Live EEG',
+    subtitle: 'Real-time oscilloscope · ThingSpeak or Bluetooth',
   },
   historical: {
     title: 'Historical Data',
-    subtitle: 'Timeline Navigation, Window Zoom & Signal Comparison',
+    subtitle: 'Browse, zoom and compare past recordings',
   },
   table: {
     title: 'Data Table',
-    subtitle: 'Raw Telemetry Packet Logs, Search & Multi-Column Sorting',
+    subtitle: 'Every stored packet — search, sort, export',
   },
   export: {
-    title: 'Reports & Export',
-    subtitle: 'RFC 4180 CSV, Biosignal CSB & Scientific PDF Generator',
+    title: 'Reports',
+    subtitle: 'CSV, CSB archives and PDF reports',
   },
   settings: {
-    title: 'Workstation Settings',
-    subtitle: 'Channel Configuration, Hardware Parameters & Protocol Info',
+    title: 'Settings',
+    subtitle: 'Channels, display and connection info',
   },
 };
 
@@ -82,110 +79,106 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 }) => {
   const currentMeta = TAB_METADATA[activeTab] || TAB_METADATA.overview;
 
+  const isLive = isPolling && connectionStatus !== 'error';
+
   return (
     <header
       id="top-header"
-      className="h-13 bg-white border-b border-[#E2E8F0] px-3 sm:px-4 md:px-6 flex items-center justify-between gap-3 shrink-0 z-20"
+      className="glass sticky top-0 h-14 border-b border-[#0F172A]/[0.06] px-3 sm:px-4 md:px-6 flex items-center justify-between gap-3 shrink-0 z-20"
     >
       {/* Left: Mobile Nav Toggle & Current View Meta */}
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-2.5 min-w-0">
         <button
           onClick={() => setIsMobileNavOpen(!isMobileNavOpen)}
-          className="md:hidden p-1.5 rounded text-[#475569] hover:text-[#0F172A] hover:bg-[#F1F5F9]"
+          className="md:hidden -ml-1 h-9 w-9 flex items-center justify-center rounded-md text-[#475569] hover:text-[#0B1220] hover:bg-[#0F172A]/[0.04]"
           aria-label="Toggle navigation menu"
         >
           {isMobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
 
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold text-[#0F172A] tracking-tight truncate">
-              {currentMeta.title}
-            </h1>
-            <span className="hidden sm:inline text-[#CBD5E1]">&bull;</span>
-            <span className="hidden sm:inline text-xs text-[#64748B] font-mono truncate">
-              {currentMeta.subtitle}
-            </span>
-          </div>
+        <div className="min-w-0 leading-tight">
+          <h1 className="text-[15px] font-semibold text-[#0B1220] tracking-tight truncate">
+            {currentMeta.title}
+          </h1>
+          <p className="hidden sm:block text-[11.5px] text-[#64748B] truncate">{currentMeta.subtitle}</p>
         </div>
       </div>
 
-      {/* Right: Last Sync, Controls */}
-      <div className="flex items-center gap-2 sm:gap-3 text-xs font-mono shrink-0">
-        {/* Last Synchronized Time */}
+      {/* Right: status + actions */}
+      <div className="flex items-center gap-2 shrink-0">
         {lastUpdated && (
-          <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-[#64748B] px-2 py-1 bg-white border border-[#E2E8F0] rounded">
-            <Clock className="w-3 h-3 text-[#94A3B8]" />
-            <span>Sync: <strong className="text-[#0F172A]">{formatDateTime(lastUpdated, timeDisplayMode)}</strong></span>
+          <div
+            className="hidden lg:flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[11.5px] text-[#64748B] bg-white/70 ring-1 ring-[#0F172A]/[0.06]"
+            title={`${totalRecords.toLocaleString()} records`}
+          >
+            <Clock className="w-3.5 h-3.5 text-[#94A3B8]" />
+            <span className="font-mono text-[#0B1220]">{formatDateTime(lastUpdated, timeDisplayMode)}</span>
           </div>
         )}
 
-        {/* Total Records Counter */}
-        <div className="hidden xl:flex items-center gap-1 text-[11px] text-[#64748B]">
-          <Database className="w-3 h-3 text-[#94A3B8]" />
-          <span>{totalRecords.toLocaleString()} pts</span>
-        </div>
-
-        {/* Live Feed Toggle */}
+        {/* Live toggle */}
         <button
           id="btn-header-stream-toggle"
           onClick={() => setIsPolling(!isPolling)}
-          className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs border font-medium transition-colors ${
-            isPolling
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
-              : 'bg-[#F8FAFC] border-[#E2E8F0] text-[#64748B] hover:text-[#0F172A]'
+          className={`flex items-center gap-2 h-8 px-2.5 sm:px-3 rounded-full text-[12px] font-medium ring-1 transition-colors ${
+            isLive
+              ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 hover:bg-emerald-100/70'
+              : 'bg-white text-[#64748B] ring-[#0F172A]/10 hover:text-[#0B1220]'
           }`}
-          title={isPolling ? 'Live telemetry stream active (15s poll)' : 'Stream is paused'}
+          title={isPolling ? 'Live sync on — tap to pause' : 'Sync paused — tap to resume'}
         >
-          {isPolling ? <Pause className="w-3 h-3 text-emerald-600" /> : <Play className="w-3 h-3 text-amber-600" />}
-          <span className="hidden sm:inline">{isPolling ? 'Live Stream' : 'Stream Paused'}</span>
+          <span className="relative flex h-2 w-2">
+            {isLive && <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60 animate-ping" />}
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+          </span>
+          <span className="hidden sm:inline">{isPolling ? 'Live' : 'Paused'}</span>
+          {isPolling ? <Pause className="w-3 h-3 opacity-70" /> : <Play className="w-3 h-3 opacity-70" />}
         </button>
 
-        {/* Manual Refresh Button */}
+        {/* Refresh */}
         <button
           id="btn-header-refresh"
           onClick={onRefresh}
           disabled={isLoading}
-          className="flex items-center gap-1 px-2.5 py-1 rounded bg-white hover:bg-[#F8FAFC] border border-[#CBD5E1] text-[#0F172A] font-medium transition-colors shadow-2xs disabled:opacity-40"
-          title="Force refresh data from ThingSpeak"
+          className="h-8 w-8 flex items-center justify-center rounded-md bg-white text-[#475569] ring-1 ring-[#0F172A]/10 shadow-2xs hover:text-[#0B1220] hover:bg-[#F8FAFC] transition-colors disabled:opacity-40"
+          title="Refresh data from ThingSpeak"
+          aria-label="Refresh"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#2563EB]' : 'text-[#64748B]'}`} />
-          <span className="hidden sm:inline">Refresh</span>
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#4F46E5]' : ''}`} />
         </button>
 
-        {/* Quick CSV Export */}
-        <button
-          id="btn-header-quick-csv"
-          onClick={onQuickCsvDownload}
-          className="hidden md:flex items-center gap-1 px-2 py-1 rounded bg-[#F8FAFC] hover:bg-[#F1F5F9] border border-[#E2E8F0] text-[#334155] hover:text-[#0F172A] font-medium transition-colors"
-          title="Download Full CSV (RFC 4180)"
-        >
-          <Download className="w-3.5 h-3.5 text-[#64748B]" />
-          <span>CSV</span>
-        </button>
-
-        {/* Quick CSB Export */}
-        {onQuickCsbDownload && (
+        {/* Quick exports */}
+        <div className="hidden md:flex items-center h-8 rounded-md bg-white ring-1 ring-[#0F172A]/10 shadow-2xs overflow-hidden text-[12px] font-medium text-[#334155]">
           <button
-            id="btn-header-quick-csb"
-            onClick={onQuickCsbDownload}
-            className="hidden md:flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-medium transition-colors"
-            title="Download Full CSB (Raw Biosignal Archive)"
+            id="btn-header-quick-csv"
+            onClick={onQuickCsvDownload}
+            className="flex items-center gap-1.5 h-full px-2.5 hover:bg-[#F8FAFC] hover:text-[#0B1220] transition-colors"
+            title="Download full CSV"
           >
-            <Download className="w-3.5 h-3.5 text-emerald-600" />
-            <span>CSB</span>
+            <Download className="w-3.5 h-3.5 text-[#94A3B8]" />
+            CSV
           </button>
-        )}
+          {onQuickCsbDownload && (
+            <button
+              id="btn-header-quick-csb"
+              onClick={onQuickCsbDownload}
+              className="flex items-center gap-1.5 h-full px-2.5 border-l border-[#0F172A]/[0.08] hover:bg-[#F8FAFC] hover:text-[#0B1220] transition-colors"
+              title="Download full CSB archive"
+            >
+              <Download className="w-3.5 h-3.5 text-[#94A3B8]" />
+              CSB
+            </button>
+          )}
+        </div>
 
-        {/* Quick PDF Report */}
         <button
           id="btn-header-quick-pdf"
           onClick={onQuickPdfReport}
-          className="hidden md:flex items-center gap-1 px-2.5 py-1 rounded bg-[#2563EB] hover:bg-blue-700 text-white font-medium transition-colors shadow-2xs"
-          title="Generate PDF Report"
+          className="hidden md:flex items-center gap-1.5 h-8 px-3 rounded-md brand-gradient text-white text-[12px] font-semibold shadow-sm ring-1 ring-[#4338CA]/40 hover:brightness-110 active:brightness-95 transition"
+          title="Generate PDF report"
         >
           <FileText className="w-3.5 h-3.5" />
-          <span>PDF Report</span>
+          PDF Report
         </button>
       </div>
     </header>

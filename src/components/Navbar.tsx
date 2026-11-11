@@ -65,7 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Left: Branding & Channel Identifier */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#2563EB]" />
+            <div className="w-2 h-2 rounded-full bg-[#4F46E5]" />
             <span className="font-semibold text-[#0F172A] tracking-tight text-xs sm:text-sm flex items-center gap-1.5 font-mono">
               BRAINMATRIX
             </span>
@@ -79,7 +79,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               href={`https://thingspeak.mathworks.com/channels/${channel?.id ?? '3469764'}/private_show`}
               target="_blank"
               rel="noreferrer"
-              className="text-[#94A3B8] hover:text-[#2563EB] transition-colors ml-0.5"
+              className="text-[#94A3B8] hover:text-[#4F46E5] transition-colors ml-0.5"
               title="Open ThingSpeak Channel in new tab"
             >
               <ExternalLink className="w-3 h-3" />
@@ -99,7 +99,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
             {connectionStatus === 'loading' && (
               <>
-                <RefreshCw className="w-3.5 h-3.5 text-[#2563EB] animate-spin" />
+                <RefreshCw className="w-3.5 h-3.5 text-[#4F46E5] animate-spin" />
                 <span className="text-[#2563EB] font-medium">Syncing</span>
               </>
             )}
@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="p-1.5 rounded bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B] hover:text-[#0F172A] transition-colors disabled:opacity-50"
             title="Fetch latest dataset from ThingSpeak"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#2563EB]' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#4F46E5]' : ''}`} />
           </button>
         </div>
       </div>
@@ -200,7 +200,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             id="btn-quick-pdf"
             onClick={onQuickPdfReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#2563EB] hover:bg-blue-700 text-white font-medium text-xs font-mono transition-all shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#4F46E5] hover:bg-[#4338CA] text-white font-medium text-xs font-mono transition-all shadow-xs"
             title="Generate & print scientific PDF report"
           >
             <FileText className="w-3.5 h-3.5 text-white" />

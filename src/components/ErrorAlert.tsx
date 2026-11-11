@@ -61,7 +61,7 @@ export const ErrorAlert: React.FC<ErrorAlertProps> = ({
               <p className="text-slate-700">
                 Channel 3469764 is a private channel. If the channel is locked, configure your private ThingSpeak Read API Key via environment variables:
               </p>
-              <code className="block bg-slate-50 border border-slate-200 p-1.5 rounded text-[#2563EB] font-mono">
+              <code className="block bg-slate-50 border border-slate-200 p-1.5 rounded text-[#4F46E5] font-mono">
                 THINGSPEAK_READ_API_KEY="YOUR_KEY_HERE"
               </code>
               <p className="text-[#64748B]">

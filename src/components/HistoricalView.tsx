@@ -124,11 +124,11 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
   return (
     <div id="historical-view" className="space-y-5">
       {/* Date & Time Filtering Control Panel */}
-      <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-4 shadow-2xs">
+      <div className="surface p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-[#2563EB]" />
-            <h2 className="text-sm font-semibold text-[#0F172A] tracking-tight">
+            <Calendar className="w-4 h-4 text-[#4F46E5]" />
+            <h2 className="text-[15px] font-semibold text-[#0B1220] tracking-tight">
               HISTORICAL TIMELINE FILTER & RANGE ANALYSIS
             </h2>
           </div>
@@ -137,7 +137,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
             <span className="text-[#64748B] font-medium">PRESETS:</span>
             <button
               onClick={() => applyPreset('all')}
-              className="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-[#2563EB] border border-blue-200 text-[11px] font-semibold transition-colors"
+              className="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-[#4F46E5] border border-blue-200 text-[11px] font-semibold transition-colors"
             >
               Full Dataset ({feeds.length})
             </button>
@@ -176,7 +176,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
               type="datetime-local"
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="w-full px-3 py-1.5 rounded bg-white border border-[#CBD5E1] text-[#0F172A] focus:outline-none focus:border-[#2563EB] text-xs font-mono shadow-2xs"
+              className="w-full px-3 py-1.5 rounded bg-white border border-[#CBD5E1] text-[#0F172A] focus:outline-none focus:border-[#4F46E5] text-xs font-mono shadow-2xs"
             />
           </div>
 
@@ -189,13 +189,13 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
                 setFollowLatest(false);
                 setEndDate(e.target.value);
               }}
-              className="w-full px-3 py-1.5 rounded bg-white border border-[#CBD5E1] text-[#0F172A] focus:outline-none focus:border-[#2563EB] text-xs font-mono shadow-2xs"
+              className="w-full px-3 py-1.5 rounded bg-white border border-[#CBD5E1] text-[#0F172A] focus:outline-none focus:border-[#4F46E5] text-xs font-mono shadow-2xs"
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-[#64748B] font-medium">SELECTED RECORD SPAN:</label>
-            <div className="px-3 py-1.5 rounded bg-[#F8FAFC] border border-[#E2E8F0] text-[#2563EB] font-semibold flex items-center justify-between">
+            <div className="px-3 py-1.5 rounded bg-[#F8FAFC] border border-[#E2E8F0] text-[#4F46E5] font-semibold flex items-center justify-between">
               <span>{filteredFeeds.length.toLocaleString()} Samples</span>
               <span className="text-[10px] text-[#64748B]">
                 {((filteredFeeds.length / Math.max(1, feeds.length)) * 100).toFixed(1)}% of total
@@ -232,17 +232,17 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
       </div>
 
       {/* Primary Waveform Visualization Workspace */}
-      <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-3 shadow-2xs">
+      <div className="surface p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
           <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-[#2563EB]" />
-            <h3 className="text-sm font-semibold text-[#0F172A] tracking-tight">
+            <Layers className="w-4 h-4 text-[#4F46E5]" />
+            <h3 className="text-[15px] font-semibold text-[#0B1220] tracking-tight">
               TIMELINE WAVEFORM VISUALIZATION ({filteredFeeds.length} SAMPLES)
             </h3>
           </div>
 
           <div className="flex items-center gap-1.5 text-xs font-mono text-[#64748B]">
-            <Clock className="w-3.5 h-3.5 text-[#2563EB]" />
+            <Clock className="w-3.5 h-3.5 text-[#4F46E5]" />
             <span>
               Timeline: {filteredFeeds[0] ? formatDateTime(filteredFeeds[0].created_at, timeDisplayMode) : '—'} &rarr;{' '}
               {filteredFeeds[filteredFeeds.length - 1]
@@ -250,7 +250,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
                 : '—'}
             </span>
           </div>
-          <span className="text-xs font-mono text-[#2563EB] font-medium">
+          <span className="text-xs font-mono text-[#4F46E5] font-medium">
             Interactive Drag to Pan &bull; Wheel to Zoom
           </span>
         </div>
@@ -267,11 +267,11 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
       </div>
 
       {/* Channel Comparison Section */}
-      <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-4 shadow-2xs">
+      <div className="surface p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
           <div className="flex items-center gap-2">
-            <GitCompare className="w-4 h-4 text-[#2563EB]" />
-            <h3 className="text-sm font-semibold text-[#0F172A] tracking-tight">
+            <GitCompare className="w-4 h-4 text-[#4F46E5]" />
+            <h3 className="text-[15px] font-semibold text-[#0B1220] tracking-tight">
               DUAL-CHANNEL COMPARISON & CORRELATION INSPECTOR
             </h3>
           </div>
@@ -282,7 +282,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
               <select
                 value={compareChA}
                 onChange={e => setCompareChA(e.target.value)}
-                className="px-2.5 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-xs font-medium shadow-2xs focus:border-[#2563EB] focus:outline-none"
+                className="px-2.5 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-xs font-medium shadow-2xs focus:border-[#4F46E5] focus:outline-none"
               >
                 {channels.map(c => (
                   <option key={c.fieldKey} value={c.fieldKey}>
@@ -299,7 +299,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
               <select
                 value={compareChB}
                 onChange={e => setCompareChB(e.target.value)}
-                className="px-2.5 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-xs font-medium shadow-2xs focus:border-[#2563EB] focus:outline-none"
+                className="px-2.5 py-1 rounded bg-white border border-[#CBD5E1] text-[#0F172A] text-xs font-medium shadow-2xs focus:border-[#4F46E5] focus:outline-none"
               >
                 {channels.map(c => (
                   <option key={c.fieldKey} value={c.fieldKey}>
@@ -316,7 +316,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
           {/* Channel A Stats */}
           <div className="p-3.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
             <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-1.5">
-              <span className="font-mono text-xs font-semibold text-[#1D4ED8]">
+              <span className="font-mono text-xs font-semibold text-[#4338CA]">
                 {filteredStatsA.label} ({filteredStatsA.fieldKey})
               </span>
               <span className="text-[11px] font-mono text-[#64748B]">
