@@ -1,7 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Capacitor } from '@capacitor/core';
-import { saveAndShareFile } from './capacitorFile';
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { ThingSpeakFeedItem, ThingSpeakChannel, ChannelStatistics, DerivedSamplingInfo } from '../types';
 import { formatDuration, formatDateTimeForPdf, formatTimeForPdfAxis, formatDateForPdf, formatOverviewAxisLabel } from './eegCalculations';
@@ -25,9 +24,32 @@ export interface TelemetryWindow {
   sampleCount: number;
 }
 
+/** Median / SD of consecutive timestamp intervals (ms input, seconds output). */
+export function computeIntervalStats(timesMs: number[]): { medianSec: number | null; sdSec: number | null; count: number } {
+  const sorted = timesMs.filter(t => Number.isFinite(t)).sort((a, b) => a - b);
+  const intervals: number[] = [];
+  for (let i = 1; i < sorted.length; i++) intervals.push((sorted[i] - sorted[i - 1]) / 1000);
+  if (intervals.length === 0) return { medianSec: null, sdSec: null, count: 0 };
+  const byValue = [...intervals].sort((a, b) => a - b);
+  const mid = Math.floor(byValue.length / 2);
+  const medianSec = byValue.length % 2 ? byValue[mid] : (byValue[mid - 1] + byValue[mid]) / 2;
+  const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const sdSec = Math.sqrt(intervals.reduce((a, b) => a + (b - mean) ** 2, 0) / intervals.length);
+  return { medianSec, sdSec, count: intervals.length };
+}
+
+function medianIntervalLabel(timesMs: number[]): string {
+  const { medianSec } = computeIntervalStats(timesMs);
+  return medianSec === null ? 'N/A' : `${medianSec.toFixed(1)}s`;
+}
+
+/** Hard ceiling on detailed-window pages so large recordings can't exhaust memory. */
+export const MAX_DETAIL_WINDOWS = 24;
+
 /**
- * Partitions feeds into a target of 3–5 representative, sequential time windows
- * for concise, multi-page detailed waveform analysis (fitting in ~6–10 total pages).
+ * Partitions feeds into sequential time windows for the detailed waveform pages.
+ * Windows hold ~80 samples by default, grow when `targetWindowCount` asks for
+ * fewer windows, and are always capped at MAX_DETAIL_WINDOWS.
  */
 export function partitionFeedsIntoWindows(
   feeds: ThingSpeakFeedItem[],
@@ -66,9 +88,11 @@ export function partitionFeedsIntoWindows(
   }
   if (currentSeg.length > 0) segments.push(currentSeg);
 
-  // 2. Subdivide segments into readable analysis windows (~60-80 samples per window)
-  const targetSamplesPerWindow = 80;
-  const rawWindows: ThingSpeakFeedItem[][] = [];
+  // 2. Subdivide segments into readable analysis windows (>= 80 samples per window,
+  //    larger when the caller requests fewer windows or the recording is long)
+  const maxWindows = Math.max(1, Math.min(MAX_DETAIL_WINDOWS, targetWindowCount ?? MAX_DETAIL_WINDOWS));
+  const targetSamplesPerWindow = Math.max(80, Math.ceil(feeds.length / maxWindows));
+  let rawWindows: ThingSpeakFeedItem[][] = [];
 
   for (const seg of segments) {
     if (seg.length <= targetSamplesPerWindow * 1.35) {
@@ -81,6 +105,16 @@ export function partitionFeedsIntoWindows(
         if (chunk.length > 0) rawWindows.push(chunk);
       }
     }
+  }
+
+  // 3. Many short gap-separated segments can still exceed the cap: merge neighbours.
+  if (rawWindows.length > maxWindows) {
+    const groupSize = Math.ceil(rawWindows.length / maxWindows);
+    const merged: ThingSpeakFeedItem[][] = [];
+    for (let i = 0; i < rawWindows.length; i += groupSize) {
+      merged.push(rawWindows.slice(i, i + groupSize).flat());
+    }
+    rawWindows = merged;
   }
 
   const windows: TelemetryWindow[] = rawWindows.map((winFeeds, idx) => {
@@ -498,7 +532,7 @@ function renderBiomedicalWaveformCanvas(
   ctx.textAlign = 'right';
   const cadenceStr = options.isOverview
     ? `Full Recording Overview • ${feeds.length} records`
-    : `Window Cadence: ~20s  •  n = ${points.length} samples`;
+    : `Median interval: ${medianIntervalLabel(points.map(p => p.timeMs))}  •  n = ${points.length} samples`;
   ctx.fillText(cadenceStr, width - padRight, padTop + plotH + 50);
 
   const resUrl = canvas.toDataURL('image/jpeg', 0.94);
@@ -575,6 +609,15 @@ export async function generatePdfReport(
   const artifactCount = feeds.filter(f => f.field4 && parseFloat(f.field4) > 0).length;
   const eyeMoveCount = feeds.filter(f => f.field3 && parseFloat(f.field3) > 0).length;
   const totalReportedSamples = samplingInfo.totalSamplesReported ?? feeds.length;
+
+  // Measured telemetry quality figures (replace previously hardcoded claims)
+  const intervalStats = computeIntervalStats(feeds.map(f => new Date(f.created_at).getTime()));
+  const entryIds = feeds.map(f => f.entry_id);
+  const minEntryId = entryIds.length ? Math.min(...entryIds) : null;
+  const maxEntryId = entryIds.length ? Math.max(...entryIds) : null;
+  const entryIdSpanLabel = minEntryId !== null && maxEntryId !== null ? `#${minEntryId}–#${maxEntryId}` : 'N/A';
+  const missingEntryIds =
+    minEntryId !== null && maxEntryId !== null ? maxEntryId - minEntryId + 1 - new Set(entryIds).size : null;
 
   // Dynamically partition recording into unconstrained, highly readable time windows based on sample count and duration
   const targetW = options.windowDurationSeconds && recordingSec > 0 ? Math.max(1, Math.ceil(recordingSec / options.windowDurationSeconds)) : undefined;
@@ -733,7 +776,7 @@ export async function generatePdfReport(
   );
 
   doc.text(`• Facility / Lab: ${options.authorOrFacility || 'Biosignal Laboratory'}`, sCol3, y + 13);
-  doc.text(`• Transmission Integrity: 100% (0 dropped packets)`, sCol3, y + 19);
+  doc.text(`• Entry ID Span: ${entryIdSpanLabel}`, sCol3, y + 19);
   doc.text(`• Dataset Preservation: Full raw dataset for CSV export`, sCol3, y + 25);
 
   y += 40;
@@ -794,10 +837,10 @@ export async function generatePdfReport(
   doc.setTextColor(71, 85, 105);
   const tX = margin + 4;
   doc.text('• Biosignal ADC Architecture: Texas Instruments ADS1299 / 24-bit Low-Noise Biosignal Delta-Sigma Converter.', tX, ty + 12);
-  doc.text('• Signal Conditioning: Hardware differential lead amplifier with analog active 50/60 Hz notch filtering.', tX, ty + 17);
+  doc.text('• Signal Conditioning: As configured on the acquisition hardware (filter settings are not recorded in telemetry).', tX, ty + 17);
   doc.text('• Telemetry Bus: ThingSpeak Cloud RESTful JSON telemetry engine with asynchronous queue buffering.', tX, ty + 22);
   doc.text('• Sampling Clock Headers: Hardware timer clock ticks logged in Field 5; cumulative duration in Field 6.', tX, ty + 27);
-  doc.text(`• Derived Sampling Frequency: ${samplingInfo.derivedSamplingRateHz ? `${samplingInfo.derivedSamplingRateHz} Hz` : 'N/A'} (Nominal reporting cadence ~${samplingInfo.telemetryIntervalSeconds ?? 20}s).`, tX, ty + 32);
+  doc.text(`• Derived Sampling Frequency: ${samplingInfo.derivedSamplingRateHz ? `${samplingInfo.derivedSamplingRateHz} Hz` : 'N/A'} (Observed reporting interval: ${intervalStats.medianSec !== null ? `${intervalStats.medianSec.toFixed(1)}s median` : 'N/A'}).`, tX, ty + 32);
   doc.text('• Data Preservation: RFC 4180 compliant CSV export format with ISO 8601 UTC ordering.', tX, ty + 37);
 
   ty += 48;
@@ -902,13 +945,15 @@ export async function generatePdfReport(
     ty + 18.5
   );
   doc.text(
-    `• Signal Integrity Rating: ${
-      artifactCount === 0 ? '98.5% (Nominal High Quality)' : '94.2% (Good Acquisition)'
-    }`,
+    `• Missing Entry IDs in Span: ${missingEntryIds === null ? 'N/A' : missingEntryIds}`,
     sqX2,
     ty + 24
   );
-  doc.text(`• Telemetry Jitter: < 0.8s standard deviation across packets`, sqX2, ty + 29.5);
+  doc.text(
+    `• Interval Jitter (SD): ${intervalStats.sdSec !== null ? `${intervalStats.sdSec.toFixed(2)}s across ${intervalStats.count} intervals` : 'N/A'}`,
+    sqX2,
+    ty + 29.5
+  );
 
   ty += 40;
 
@@ -1032,8 +1077,9 @@ export async function generatePdfReport(
     if (vals.length === 0) return { yMin: -10, yMax: 10 };
     vals.sort((a, b) => a - b);
     const n = vals.length;
-    let rawMin = vals[Math.max(0, Math.floor(n * 0.02))];
-    let rawMax = vals[Math.min(n - 1, Math.floor(n * 0.98))];
+    // Full range (no percentile trimming) so peaks are never clipped.
+    let rawMin = vals[0];
+    let rawMax = vals[n - 1];
     if (rawMin === rawMax) {
       rawMin -= 5;
       rawMax += 5;
@@ -1221,8 +1267,8 @@ export async function generatePdfReport(
   doc.setFontSize(7.3);
   doc.setTextColor(71, 85, 105);
   doc.text('• ADC Resolution: Texas Instruments ADS1299 24-bit delta-sigma ADC providing 0.022 µV/LSB resolution.', margin + 4, ny + 13);
-  doc.text('• Transmission Cadence: ThingSpeak REST API rate-limits updates to ~15–20s per packet.', margin + 4, ny + 18.5);
-  doc.text('• Telemetry Clock Headers: Hardware timer ticks in Field 5 confirm zero cumulative packet loss.', margin + 4, ny + 24);
+  doc.text(`• Transmission Cadence: observed median interval ${intervalStats.medianSec !== null ? `${intervalStats.medianSec.toFixed(1)}s` : 'N/A'} between stored records.`, margin + 4, ny + 18.5);
+  doc.text('• Telemetry Clock Headers: Field 5 sample counter is reported as received; packet loss is not independently verified.', margin + 4, ny + 24);
   doc.text('• Artifact Rejection: Voltage excursions exceeding ±100 µV are flagged in Field 4 as movement noise.', margin + 4, ny + 29.5);
   doc.text('• Full Raw Dataset: Preserved without truncation for offline RFC 4180 CSV / CSB export.', margin + 4, ny + 35);
 
@@ -1249,7 +1295,7 @@ export async function generatePdfReport(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
   doc.setTextColor(30, 41, 59);
-  doc.text(`Document Integrity Checksum: SHA256-${channelId}-${Date.now().toString(16)}`, margin + 4, ny + 34);
+  doc.text(`Report Reference: CH${channelId}-${Date.now().toString(16).toUpperCase()} (identifier only, not a checksum)`, margin + 4, ny + 34);
 
   // =========================================================================
   // SCIENTIFIC FOOTERS ON ALL PAGES
@@ -1280,124 +1326,55 @@ export async function generatePdfReport(
   }
 
   if (Capacitor.getPlatform() !== 'web') {
-    // ── DIAGNOSTIC: per-operation error surfacing ── (TEMPORARY – remove after fix confirmed)
     const directory = Directory.Cache;
-    const path = filename; // No subfolder needed
-    const mimeType = 'application/pdf';
-    let currentOp = 'init';
-    let currentChunk = -1;
-
-    const showNativeError = (op: string, err: unknown, extra?: string) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      const code = (err as any)?.code !== undefined ? String((err as any).code) : 'n/a';
-      const detail = [
-        `❌ NATIVE PDF ERROR`,
-        `Operation : ${op}`,
-        `Filename  : ${filename}`,
-        `Directory : ${directory}`,
-        `Path      : ${path}`,
-        `MIME type : ${mimeType}`,
-        currentChunk >= 0 ? `Chunk     : ${currentChunk}` : null,
-        `Error code: ${code}`,
-        `Message   : ${msg}`,
-        extra ? `Extra     : ${extra}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n');
-      console.error('[PDF NATIVE ERROR]', detail);
-      debugLog(detail);
-      // No UI alert here; alerts are only shown for final write or share failures.
+    const path = filename;
+    const MAX_PDF_BYTES = 150 * 1024 * 1024; // 150 MB hard safety ceiling
+    const pdfArrayBuffer = doc.output('arraybuffer');
+    if (pdfArrayBuffer.byteLength > MAX_PDF_BYTES) {
+      const mb = (pdfArrayBuffer.byteLength / (1024 * 1024)).toFixed(1);
+      throw new Error(
+        `Export stopped: Generated PDF report size (${mb} MB) exceeds the 150 MB safety limit. Please select a narrower time window range.`
+      );
+    }
+    const uint8 = new Uint8Array(pdfArrayBuffer);
+    const chunkSize = 1024 * 1024; // write in 1 MB base64 chunks to keep bridge payloads small
+    const sliceToBase64 = (arr: Uint8Array): string => {
+      let binary = '';
+      for (let i = 0; i < arr.length; i += 0x8000) {
+        binary += String.fromCharCode(...arr.subarray(i, i + 0x8000));
+      }
+      return btoa(binary);
     };
+    const wrap = (op: string, err: unknown) =>
+      new Error(`PDF ${op} failed: ${err instanceof Error ? err.message : String(err)}`);
 
     try {
-      const MAX_PDF_BYTES = 150 * 1024 * 1024; // 150 MB hard safety ceiling
-      const pdfArrayBuffer = doc.output('arraybuffer');
-      if (pdfArrayBuffer.byteLength > MAX_PDF_BYTES) {
-        const mb = (pdfArrayBuffer.byteLength / (1024 * 1024)).toFixed(1);
-        throw new Error(
-          `Export stopped: Generated PDF report size (${mb} MB) exceeds the 150 MB safety limit. Please select a narrower time window range.`
-        );
-      }
-      const uint8 = new Uint8Array(pdfArrayBuffer);
-      const chunkSize = 1024 * 1024;
-      const totalLength = uint8.length;
-      debugLog(`PDF size: ${totalLength} bytes, chunks: ${Math.ceil(totalLength / chunkSize)}, directory: ${directory}, path: ${path}`);
-
-      const sliceToBase64 = (arr: Uint8Array): string => {
-        let binary = '';
-        for (let i = 0; i < arr.length; i++) {
-          binary += String.fromCharCode(arr[i]);
-        }
-        return btoa(binary);
-      };
-
-      // ── writeFile (first chunk) ──
-      currentOp = 'writeFile';
-      currentChunk = 0;
-      const firstChunk = uint8.subarray(0, Math.min(chunkSize, totalLength));
+      await Filesystem.writeFile({ path, directory, data: sliceToBase64(uint8.subarray(0, chunkSize)) });
+    } catch (err) {
+      throw wrap('write', err);
+    }
+    for (let offset = chunkSize; offset < uint8.length; offset += chunkSize) {
       try {
-        await Filesystem.writeFile({
-          path,
-          data: sliceToBase64(firstChunk),
-          directory,
-          // No encoding – data is base64
-        });
-        debugLog(`✅ writeFile OK – chunk 0, ${firstChunk.length} bytes`);
-      } catch (writeErr) {
-        // Final write failure – inform user
-        window.alert('Error writing file (first chunk): ' + writeErr);
-        console.error('writeFile error', writeErr);
-        return;      }
-
-      // ── appendFile (remaining chunks) ──
-      currentOp = 'appendFile';
-      for (let offset = chunkSize; offset < totalLength; offset += chunkSize) {
-        const chunkIdx = Math.floor(offset / chunkSize);
-        currentChunk = chunkIdx;
-        const end = Math.min(offset + chunkSize, totalLength);
-        const chunk = uint8.subarray(offset, end);
-        try {
-          await Filesystem.appendFile({
-            path,
-            data: sliceToBase64(chunk),
-            directory});
-          debugLog(`✅ appendFile OK – chunk ${chunkIdx}, ${chunk.length} bytes @ offset ${offset}`);
-        } catch (appendErr) {
-          // Chunk append error – log only, no UI alert
-          console.error('appendFile error', appendErr);
-          return;        }
+        await Filesystem.appendFile({ path, directory, data: sliceToBase64(uint8.subarray(offset, offset + chunkSize)) });
+      } catch (err) {
+        throw wrap(`append (offset ${offset})`, err);
       }
+    }
 
-      // ── getUri ──
-      currentOp = 'getUri';
-      currentChunk = -1;
-      let uriResult: { uri: string };
-      try {
-        uriResult = await Filesystem.getUri({ path, directory });
-        debugLog(`✅ getUri OK – uri: ${uriResult.uri}`);
-      } catch (uriErr) {
-        // URI retrieval error – log only
-        console.error('getUri error', uriErr);
-        return;      }
+    let uri: string;
+    try {
+      uri = (await Filesystem.getUri({ path, directory })).uri;
+    } catch (err) {
+      throw wrap('locate', err);
+    }
 
-      // ── Share.share ──
-      currentOp = 'Share.share';
-      try {
-        await Share.share({
-          title: filename,
-          url: uriResult.uri,
-          dialogTitle: 'Share exported PDF report',
-        });
-        debugLog('✅ Native PDF save and share completed');
-      } catch (shareErr) {
-        // Final share failure – inform user
-        window.alert('Error sharing PDF: ' + shareErr);
-        console.error('Share.share error', shareErr);
-        return;      }
-    } catch (e) {
-      // Catch-all for unexpected errors (e.g. output('arraybuffer') itself)
-        console.error(`unexpected error during [${currentOp}]`, e);
-      }
+    try {
+      await Share.share({ title: filename, url: uri, dialogTitle: 'Share exported PDF report' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/cancel/i.test(msg)) return; // user dismissed the share sheet — the file is still saved
+      throw wrap('share', err);
+    }
     return;
   } else {
     debugLog('Web platform: using jsPDF save');

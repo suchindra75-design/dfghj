@@ -13,6 +13,7 @@ import {
   localDatetimeToUtcIso,
   getLocalTodayRange,
   getLocalLast24hRange,
+  localDatetimeEndToUtcMs,
 } from '../utils/timezoneUtils';
 import {
   Calendar,
@@ -52,6 +53,8 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
 
   const [startDate, setStartDate] = useState<string>(initialStartDate);
   const [endDate, setEndDate] = useState<string>(initialEndDate);
+  // While true the range is open-ended, so records polled after mount stay included.
+  const [followLatest, setFollowLatest] = useState<boolean>(true);
 
   // Dual-channel comparison selection
   const [compareChA, setCompareChA] = useState<string>('field1');
@@ -70,16 +73,15 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
       }
     }
 
-    if (endDate) {
-      const endUtcIso = localDatetimeToUtcIso(endDate);
-      const eMs = new Date(endUtcIso).getTime();
+    if (endDate && !followLatest) {
+      const eMs = localDatetimeEndToUtcMs(endDate);
       if (!isNaN(eMs)) {
         list = list.filter(f => new Date(f.created_at).getTime() <= eMs);
       }
     }
 
     return list;
-  }, [feeds, startDate, endDate]);
+  }, [feeds, startDate, endDate, followLatest]);
 
   // Statistics for filtered range
   const filteredStatsA = useMemo(() => {
@@ -96,6 +98,7 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
   const applyPreset = (preset: 'all' | 'today' | 'last24h' | 'first100' | 'last100') => {
     if (feeds.length === 0 && preset !== 'today' && preset !== 'last24h') return;
 
+    setFollowLatest(preset === 'all' || preset === 'last100');
     if (preset === 'all') {
       setStartDate(utcToLocalDatetimeLocalString(feeds[0].created_at));
       setEndDate(utcToLocalDatetimeLocalString(feeds[feeds.length - 1].created_at));
@@ -182,7 +185,10 @@ export const HistoricalView: React.FC<HistoricalViewProps> = ({
             <input
               type="datetime-local"
               value={endDate}
-              onChange={e => setEndDate(e.target.value)}
+              onChange={e => {
+                setFollowLatest(false);
+                setEndDate(e.target.value);
+              }}
               className="w-full px-3 py-1.5 rounded bg-white border border-[#CBD5E1] text-[#0F172A] focus:outline-none focus:border-[#2563EB] text-xs font-mono shadow-2xs"
             />
           </div>

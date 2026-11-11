@@ -43,11 +43,19 @@ interface ThingSpeakChannelMeta {
   field8?: string;
 }
 
-// In-memory cache to respect ThingSpeak rate limits (15s minimum update cadence on free tier)
-let cachedFeeds: ThingSpeakFeedItem[] = [];
-let cachedChannel: ThingSpeakChannelMeta | null = null;
-let lastFeedsFetchTime = 0;
-const CACHE_TTL_MS = 10000; // 10 seconds cache
+// ---------------------------------------------------------------------------
+// Tunables (all overridable through environment variables)
+// ---------------------------------------------------------------------------
+const THINGSPEAK_PAGE_SIZE = 8000; // ThingSpeak hard maximum per request
+/** Upper bound on records pulled per refresh (protects memory, quota and mobile clients). */
+const MAX_RECORDS = Math.max(THINGSPEAK_PAGE_SIZE, Number(process.env.MAX_RECORDS) || 48000);
+const FEEDS_CACHE_TTL_MS = 10_000;
+/** `?force=true` can only bypass the cache once the cached copy is at least this old. */
+const FORCE_REFRESH_MIN_AGE_MS = 5_000;
+const LATEST_CACHE_TTL_MS = 5_000;
+const STATUS_CACHE_TTL_MS = 30_000;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 120; // requests per IP per window
 
 /**
  * Builds ThingSpeak REST API URL with API Key if available.
@@ -68,124 +76,211 @@ function buildThingSpeakUrl(endpoint: string, params: Record<string, string | nu
   return url.toString();
 }
 
-/**
- * Batches requests to ThingSpeak to retrieve complete datasets if the channel exceeds 8000 entries.
- */
-async function fetchAllFeedsFromThingSpeak(): Promise<{ channel: ThingSpeakChannelMeta; feeds: ThingSpeakFeedItem[] }> {
-  // First fetch up to 8000 results
-  const firstUrl = buildThingSpeakUrl('feeds.json', { results: 8000 });
-  const resp = await fetch(firstUrl, {
-    headers: { 'Accept': 'application/json' }
-  });
+/** ThingSpeak expects `YYYY-MM-DD HH:NN:SS` (UTC unless a timezone param is sent). */
+function toThingSpeakDate(ms: number): string {
+  return new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+}
 
-  if (!resp.ok) {
-    let msg = `ThingSpeak API returned HTTP ${resp.status} (${resp.statusText})`;
-    if (resp.status === 404) {
-      msg = `Channel ${getChannelId()} not found. Please verify the Channel ID.`;
-    } else if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
-      msg = `Channel ${getChannelId()} is private. Please ensure a valid THINGSPEAK_READ_API_KEY is configured in environment settings.`;
-    }
-    throw new Error(msg);
+function channelHttpError(status: number, statusText: string): Error {
+  if (status === 404) return new Error(`Channel ${getChannelId()} not found. Please verify the Channel ID.`);
+  if (status === 400 || status === 401 || status === 403) {
+    return new Error(`Channel ${getChannelId()} is private. Please ensure a valid THINGSPEAK_READ_API_KEY is configured in environment settings.`);
   }
+  return new Error(`ThingSpeak API returned HTTP ${status} (${statusText})`);
+}
 
+async function fetchThingSpeakPage(params: Record<string, string | number>): Promise<{ channel: ThingSpeakChannelMeta; feeds: ThingSpeakFeedItem[] }> {
+  const resp = await fetch(buildThingSpeakUrl('feeds.json', params), { headers: { Accept: 'application/json' } });
+  if (!resp.ok) throw channelHttpError(resp.status, resp.statusText);
   const data = await resp.json();
-
-  // ThingSpeak returns -1 or empty object on authentication failure for private channels
-  if (data === -1 || (typeof data === 'object' && data.error)) {
+  // ThingSpeak returns -1 or { error } on authentication failure for private channels
+  if (data === -1 || (typeof data === 'object' && data?.error)) {
     throw new Error(`ThingSpeak authentication rejected for Channel ${getChannelId()}. Check THINGSPEAK_READ_API_KEY.`);
   }
-
-  if (!data.channel || !Array.isArray(data.feeds)) {
+  if (!data?.channel || !Array.isArray(data.feeds)) {
     throw new Error(`Invalid response schema from ThingSpeak Channel ${getChannelId()}`);
   }
+  return { channel: data.channel, feeds: data.feeds };
+}
 
-  const channelMeta: ThingSpeakChannelMeta = data.channel;
-  let allFeeds: ThingSpeakFeedItem[] = data.feeds;
+interface FeedsSnapshot {
+  channel: ThingSpeakChannelMeta;
+  feeds: ThingSpeakFeedItem[];
+  /** True only when paging reached the first record of the channel (not truncated by MAX_RECORDS). */
+  isComplete: boolean;
+  fetchedAt: number;
+}
 
-  // If there are more entries remaining (last_entry_id > latest retrieved entry_id), batch fetch
-  const lastEntryId = channelMeta.last_entry_id;
-  let maxLoop = 5; // safety cap to prevent runaway requests
-  while (allFeeds.length > 0 && allFeeds[allFeeds.length - 1].entry_id < lastEntryId && maxLoop > 0) {
-    maxLoop--;
-    const lastTimestamp = allFeeds[allFeeds.length - 1].created_at;
-    // Add 1 second to start parameter to avoid duplicate record
-    const nextStartDate = new Date(new Date(lastTimestamp).getTime() + 1000).toISOString();
-    const nextUrl = buildThingSpeakUrl('feeds.json', { start: nextStartDate, results: 8000 });
+/**
+ * Retrieves the channel history, newest first, paging backwards in time.
+ *
+ * `feeds.json?results=N` always returns the N *most recent* entries, so older
+ * data has to be requested with an `end` bound set to the oldest timestamp
+ * already received. `end` is inclusive and timestamps have 1 s resolution, so
+ * pages overlap by design and are de-duplicated on entry_id.
+ */
+async function fetchAllFeedsFromThingSpeak(): Promise<FeedsSnapshot> {
+  const first = await fetchThingSpeakPage({ results: THINGSPEAK_PAGE_SIZE });
+  const byId = new Map<number, ThingSpeakFeedItem>();
+  for (const f of first.feeds) byId.set(f.entry_id, f);
 
-    try {
-      const nextResp = await fetch(nextUrl, { headers: { 'Accept': 'application/json' } });
-      if (!nextResp.ok) break;
-      const nextData = await nextResp.json();
-      if (!nextData || !Array.isArray(nextData.feeds) || nextData.feeds.length === 0) break;
-      allFeeds = allFeeds.concat(nextData.feeds);
-    } catch {
+  let isComplete = first.feeds.length < THINGSPEAK_PAGE_SIZE;
+  let oldest = first.feeds[0];
+
+  while (!isComplete && oldest && byId.size < MAX_RECORDS) {
+    if (oldest.entry_id <= 1) {
+      isComplete = true;
       break;
     }
-  }
-
-  // Deduplicate and ensure ascending chronological order by entry_id
-  const seenIds = new Set<number>();
-  const uniqueFeeds: ThingSpeakFeedItem[] = [];
-  for (const item of allFeeds) {
-    if (!seenIds.has(item.entry_id)) {
-      seenIds.add(item.entry_id);
-      uniqueFeeds.push(item);
+    const remaining = MAX_RECORDS - byId.size;
+    const page = await fetchThingSpeakPage({
+      end: toThingSpeakDate(new Date(oldest.created_at).getTime()),
+      results: Math.min(THINGSPEAK_PAGE_SIZE, remaining + 50), // +50 absorbs the overlap
+    });
+    let added = 0;
+    for (const f of page.feeds) {
+      if (!byId.has(f.entry_id)) {
+        byId.set(f.entry_id, f);
+        added++;
+      }
     }
+    if (page.feeds.length < THINGSPEAK_PAGE_SIZE || added === 0) {
+      isComplete = page.feeds.length < THINGSPEAK_PAGE_SIZE;
+      if (added === 0) isComplete = true; // nothing older exists
+      break;
+    }
+    oldest = page.feeds[0];
   }
-  uniqueFeeds.sort((a, b) => a.entry_id - b.entry_id);
 
-  return { channel: channelMeta, feeds: uniqueFeeds };
+  let feeds = [...byId.values()].sort((a, b) => a.entry_id - b.entry_id);
+  if (feeds.length > MAX_RECORDS) {
+    feeds = feeds.slice(-MAX_RECORDS);
+    isComplete = false;
+  }
+  return { channel: first.channel, feeds, isComplete, fetchedAt: Date.now() };
 }
+
+// ---------------------------------------------------------------------------
+// Caches with in-flight de-duplication (concurrent callers share one upstream request)
+// ---------------------------------------------------------------------------
+function createCachedLoader<T>(ttlMs: number, load: () => Promise<T>) {
+  let value: T | null = null;
+  let loadedAt = 0;
+  let inflight: Promise<T> | null = null;
+  return {
+    async get(opts: { force?: boolean } = {}): Promise<T> {
+      const age = Date.now() - loadedAt;
+      const fresh = value !== null && age < ttlMs;
+      const forceAllowed = opts.force && age >= FORCE_REFRESH_MIN_AGE_MS;
+      if (fresh && !forceAllowed) return value as T;
+      if (!inflight) {
+        inflight = load()
+          .then(v => {
+            value = v;
+            loadedAt = Date.now();
+            return v;
+          })
+          .finally(() => {
+            inflight = null;
+          });
+      }
+      return inflight;
+    },
+  };
+}
+
+const feedsCache = createCachedLoader(FEEDS_CACHE_TTL_MS, fetchAllFeedsFromThingSpeak);
+const latestCache = createCachedLoader(LATEST_CACHE_TTL_MS, () => fetchThingSpeakPage({ results: 1 }));
+const statusCache = createCachedLoader(STATUS_CACHE_TTL_MS, () => fetchThingSpeakPage({ results: 1 }));
+
+function filterByDateRange(feeds: ThingSpeakFeedItem[], start?: string, end?: string): ThingSpeakFeedItem[] {
+  const startMs = start ? new Date(start).getTime() : NaN;
+  const endMs = end ? new Date(end).getTime() : NaN;
+  if (isNaN(startMs) && isNaN(endMs)) return feeds;
+  return feeds.filter(f => {
+    const t = new Date(f.created_at).getTime();
+    if (!isNaN(startMs) && t < startMs) return false;
+    if (!isNaN(endMs) && t > endMs) return false;
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// CORS allowlist + per-IP rate limiting
+// ---------------------------------------------------------------------------
+/**
+ * Origins allowed to call the API from a browser. Native Capacitor builds use
+ * CapacitorHttp (native networking, no CORS), and the web build is served from
+ * this same server, so the defaults only cover WebView and local dev origins.
+ * Add deployed web origins via ALLOWED_ORIGINS (comma-separated).
+ */
+const DEFAULT_ALLOWED_ORIGINS = [
+  'capacitor://localhost',
+  'http://localhost',
+  'https://localhost',
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
+const allowedOrigins = new Set(
+  [...DEFAULT_ALLOWED_ORIGINS, ...(process.env.ALLOWED_ORIGINS || '').split(',')]
+    .map(o => o.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+);
+
+const rateBuckets = new Map<string, { count: number; windowStart: number }>();
+setInterval(() => {
+  const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS;
+  for (const [ip, b] of rateBuckets) if (b.windowStart < cutoff) rateBuckets.delete(ip);
+}, RATE_LIMIT_WINDOW_MS).unref();
 
 async function startServer() {
   const app = express();
+  app.disable('x-powered-by');
+  // Render (and most PaaS) terminate TLS one proxy hop in front of the app;
+  // trust exactly that hop so req.ip is the real client for rate limiting.
+  app.set('trust proxy', 1);
 
-  // CORS middleware for Capacitor native WebView & cross-origin mobile requests
+  // CORS: reflect only allowlisted origins (never '*').
   app.use((req: Request, res: Response, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.has(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Vary', 'Origin');
+      res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    }
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
+      return res.sendStatus(origin && allowedOrigins.has(origin) ? 204 : 403);
     }
     next();
   });
 
-  app.use(express.json());
+  // Per-IP fixed-window rate limit on the API.
+  app.use('/api', (req: Request, res: Response, next) => {
+    const ip = req.ip || 'unknown';
+    const now = Date.now();
+    let bucket = rateBuckets.get(ip);
+    if (!bucket || now - bucket.windowStart >= RATE_LIMIT_WINDOW_MS) {
+      bucket = { count: 0, windowStart: now };
+      rateBuckets.set(ip, bucket);
+    }
+    bucket.count++;
+    if (bucket.count > RATE_LIMIT_MAX) {
+      res.setHeader('Retry-After', String(Math.ceil((bucket.windowStart + RATE_LIMIT_WINDOW_MS - now) / 1000)));
+      return res.status(429).json({ success: false, error: 'Too many requests. Please slow down.' });
+    }
+    next();
+  });
 
   // Health endpoint
   app.get('/api/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok', channelId: getChannelId(), hasApiKey: Boolean(getReadApiKey()) });
+    res.json({ status: 'ok' });
   });
 
   // Channel Status & Verification endpoint
   app.get('/api/eeg/status', async (req: Request, res: Response) => {
     try {
-      const testUrl = buildThingSpeakUrl('feeds.json', { results: 1 });
-      const resp = await fetch(testUrl, { headers: { 'Accept': 'application/json' } });
-
-      if (!resp.ok) {
-        return res.status(resp.status).json({
-          success: false,
-          channelId: Number(getChannelId()),
-          apiKeyConfigured: Boolean(getReadApiKey()),
-          isAccessible: false,
-          error: `ThingSpeak HTTP ${resp.status}: ${resp.statusText}. Private channels require a valid THINGSPEAK_READ_API_KEY.`,
-        });
-      }
-
-      const data = await resp.json();
-      if (data === -1) {
-        return res.status(403).json({
-          success: false,
-          channelId: Number(getChannelId()),
-          apiKeyConfigured: Boolean(getReadApiKey()),
-          isAccessible: false,
-          error: 'ThingSpeak returned authentication failure (-1). Please verify THINGSPEAK_READ_API_KEY.',
-        });
-      }
-
-      const ch = data.channel || {};
+      const { channel: ch } = await statusCache.get();
       const fieldNames: Record<string, string> = {};
       for (let i = 1; i <= 8; i++) {
         const k = `field${i}` as keyof ThingSpeakChannelMeta;
@@ -205,7 +300,7 @@ async function startServer() {
         isAccessible: true,
       });
     } catch (err: any) {
-      return res.status(500).json({
+      return res.status(502).json({
         success: false,
         channelId: Number(getChannelId()),
         apiKeyConfigured: Boolean(getReadApiKey()),
@@ -215,45 +310,17 @@ async function startServer() {
     }
   });
 
-  // Get Feeds with batching, date filtering, and cache protection
+  // Full history (paged + cached), optionally filtered by date range / latest N
   app.get('/api/eeg/feeds', async (req: Request, res: Response) => {
     try {
-      const now = Date.now();
-      const isForceRefresh = req.query.force === 'true';
-      const startDate = req.query.start as string | undefined;
-      const endDate = req.query.end as string | undefined;
+      const snapshot = await feedsCache.get({ force: req.query.force === 'true' });
+      let filteredFeeds = filterByDateRange(
+        snapshot.feeds,
+        req.query.start as string | undefined,
+        req.query.end as string | undefined
+      );
+
       const resultsParam = req.query.results ? parseInt(req.query.results as string, 10) : undefined;
-
-      // Use cache if within TTL and not a custom date filter
-      let channel = cachedChannel;
-      let feeds = cachedFeeds;
-
-      if (!channel || feeds.length === 0 || isForceRefresh || (now - lastFeedsFetchTime > CACHE_TTL_MS)) {
-        const fetched = await fetchAllFeedsFromThingSpeak();
-        cachedChannel = fetched.channel;
-        cachedFeeds = fetched.feeds;
-        lastFeedsFetchTime = now;
-        channel = cachedChannel;
-        feeds = cachedFeeds;
-      }
-
-      // Filter feeds if date range or result count is specified
-      let filteredFeeds = feeds;
-
-      if (startDate) {
-        const startMs = new Date(startDate).getTime();
-        if (!isNaN(startMs)) {
-          filteredFeeds = filteredFeeds.filter(f => new Date(f.created_at).getTime() >= startMs);
-        }
-      }
-
-      if (endDate) {
-        const endMs = new Date(endDate).getTime();
-        if (!isNaN(endMs)) {
-          filteredFeeds = filteredFeeds.filter(f => new Date(f.created_at).getTime() <= endMs);
-        }
-      }
-
       if (resultsParam && resultsParam > 0 && resultsParam < filteredFeeds.length) {
         // Return latest N records
         filteredFeeds = filteredFeeds.slice(-resultsParam);
@@ -261,12 +328,13 @@ async function startServer() {
 
       return res.json({
         success: true,
-        channel,
+        channel: snapshot.channel,
         feeds: filteredFeeds,
         totalCount: filteredFeeds.length,
-        isComplete: true,
+        isComplete: snapshot.isComplete,
+        maxRecords: MAX_RECORDS,
         apiKeyConfigured: Boolean(getReadApiKey()),
-        fetchedAt: new Date(lastFeedsFetchTime).toISOString(),
+        fetchedAt: new Date(snapshot.fetchedAt).toISOString(),
       });
     } catch (err: any) {
       console.error('Error fetching ThingSpeak feeds:', err);
@@ -281,16 +349,11 @@ async function startServer() {
   // Latest single feed for low-overhead real-time polling
   app.get('/api/eeg/latest', async (req: Request, res: Response) => {
     try {
-      const url = buildThingSpeakUrl('feeds.json', { results: 1 });
-      const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      if (!resp.ok) {
-        return res.status(resp.status).json({ success: false, error: `ThingSpeak HTTP ${resp.status}` });
-      }
-      const data = await resp.json();
-      if (!data || !data.feeds || data.feeds.length === 0) {
+      const data = await latestCache.get();
+      if (data.feeds.length === 0) {
         return res.status(404).json({ success: false, error: 'No recent feed available' });
       }
-      const latest = data.feeds[0];
+      const latest = data.feeds[data.feeds.length - 1];
       return res.json({
         success: true,
         latest,
@@ -298,32 +361,19 @@ async function startServer() {
         channelUpdatedAt: data.channel?.updated_at || latest.created_at,
       });
     } catch (err: any) {
-      return res.status(500).json({ success: false, error: err?.message || 'Error fetching latest reading' });
+      return res.status(502).json({ success: false, error: err?.message || 'Error fetching latest reading' });
     }
   });
 
-  // Server-side CSV Export
+  // Server-side CSV Export (served from the shared cache)
   app.get('/api/eeg/csv', async (req: Request, res: Response) => {
     try {
-      const fetched = await fetchAllFeedsFromThingSpeak();
-      const { channel, feeds } = fetched;
-
-      let filteredFeeds = feeds;
-      const startDate = req.query.start as string | undefined;
-      const endDate = req.query.end as string | undefined;
-
-      if (startDate) {
-        const startMs = new Date(startDate).getTime();
-        if (!isNaN(startMs)) {
-          filteredFeeds = filteredFeeds.filter(f => new Date(f.created_at).getTime() >= startMs);
-        }
-      }
-      if (endDate) {
-        const endMs = new Date(endDate).getTime();
-        if (!isNaN(endMs)) {
-          filteredFeeds = filteredFeeds.filter(f => new Date(f.created_at).getTime() <= endMs);
-        }
-      }
+      const { channel, feeds, isComplete } = await feedsCache.get();
+      const filteredFeeds = filterByDateRange(
+        feeds,
+        req.query.start as string | undefined,
+        req.query.end as string | undefined
+      );
 
       const today = new Date().toISOString().split('T')[0];
       const filename = `EEG_Channel_${getChannelId()}_${today}.csv`;
@@ -341,19 +391,20 @@ async function startServer() {
         return s;
       };
 
-      const f1 = channel?.field1 ? `field1_${channel.field1.replace(/[^a-zA-Z0-9_]/g, '_')}` : 'field1';
-      const f2 = channel?.field2 ? `field2_${channel.field2.replace(/[^a-zA-Z0-9_]/g, '_')}` : 'field2';
-      const f3 = channel?.field3 ? `field3_${channel.field3.replace(/[^a-zA-Z0-9_]/g, '_')}` : 'field3';
-      const f4 = channel?.field4 ? `field4_${channel.field4.replace(/[^a-zA-Z0-9_]/g, '_')}` : 'field4';
-      const f5 = channel?.field5 ? `field5_${channel.field5.replace(/[^a-zA-Z0-9_]/g, '_')}` : 'field5';
-      const f6 = channel?.field6 ? `field6_${channel.field6.replace(/[^a-zA-Z0-9_]/g, '_')}` : 'field6';
+      const header = (key: keyof ThingSpeakChannelMeta) => {
+        const name = channel?.[key];
+        return typeof name === 'string' && name ? `${key}_${name.replace(/[^a-zA-Z0-9_]/g, '_')}` : key;
+      };
 
       const lines: string[] = [];
       lines.push(`# ThingSpeak Channel ID: ${channel?.id ?? getChannelId()}`);
       lines.push(`# Channel Name: ${channel?.name ?? 'SLEEP MONITORING'}`);
       lines.push(`# Export Timestamp: ${new Date().toISOString()}`);
       lines.push(`# Total Samples: ${filteredFeeds.length}`);
-      lines.push(['entry_id', 'created_at', f1, f2, f3, f4, f5, f6].map(esc).join(','));
+      if (!isComplete) {
+        lines.push(`# NOTE: history truncated to the most recent ${MAX_RECORDS} records`);
+      }
+      lines.push(['entry_id', 'created_at', ...(['field1', 'field2', 'field3', 'field4', 'field5', 'field6'] as const).map(header)].map(esc).join(','));
 
       for (const feed of filteredFeeds) {
         lines.push([
@@ -371,7 +422,7 @@ async function startServer() {
       return res.send(lines.join('\r\n'));
     } catch (err: any) {
       console.error('CSV Export Error:', err);
-      return res.status(500).send(`Failed to generate CSV export: ${err?.message || 'Server error'}`);
+      return res.status(502).send(`Failed to generate CSV export: ${err?.message || 'Server error'}`);
     }
   });
 

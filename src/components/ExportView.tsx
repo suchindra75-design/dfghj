@@ -11,7 +11,8 @@ import { downloadCsvFile } from '../utils/csvExport';
 import { downloadCsbFile } from '../utils/csbExport';
 import { generatePdfReport } from '../utils/pdfExport';
 import { formatDuration, formatDateTime } from '../utils/eegCalculations';
-import { utcToLocalDatetimeLocalString, localDatetimeToUtcIso } from '../utils/timezoneUtils';
+import { utcToLocalDatetimeLocalString, localDatetimeToUtcIso, localDatetimeEndToUtcMs } from '../utils/timezoneUtils';
+import { calculateAllStats, deriveSamplingInformation } from '../utils/eegCalculations';
 import {
   Download,
   FileText,
@@ -135,7 +136,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
       if (!isNaN(sMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() >= sMs);
     }
     if (csvCustomEnd) {
-      const eMs = new Date(localDatetimeToUtcIso(csvCustomEnd)).getTime();
+      const eMs = localDatetimeEndToUtcMs(csvCustomEnd);
       if (!isNaN(eMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() <= eMs);
     }
     return { feedsToExport: filtered, label: 'Custom Range Telemetry' };
@@ -168,7 +169,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
       if (!isNaN(sMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() >= sMs);
     }
     if (csbCustomEnd) {
-      const eMs = new Date(localDatetimeToUtcIso(csbCustomEnd)).getTime();
+      const eMs = localDatetimeEndToUtcMs(csbCustomEnd);
       if (!isNaN(eMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() <= eMs);
     }
     return { feedsToExport: filtered, label: 'Custom Range Telemetry' };
@@ -201,7 +202,7 @@ export const ExportView: React.FC<ExportViewProps> = ({
       if (!isNaN(sMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() >= sMs);
     }
     if (pdfCustomEnd) {
-      const eMs = new Date(localDatetimeToUtcIso(pdfCustomEnd)).getTime();
+      const eMs = localDatetimeEndToUtcMs(pdfCustomEnd);
       if (!isNaN(eMs)) filtered = filtered.filter(f => new Date(f.created_at).getTime() <= eMs);
     }
     return { feedsToExport: filtered, label: 'Custom Range Telemetry' };
@@ -227,7 +228,14 @@ export const ExportView: React.FC<ExportViewProps> = ({
         ? `Filtered_${csvFilteredType}`
         : 'Custom_Range';
 
-    downloadCsvFile(csvSelectedData.feedsToExport, channel || undefined, suffix || undefined);
+    try {
+      await downloadCsvFile(csvSelectedData.feedsToExport, channel || undefined, suffix || undefined);
+    } catch (err: any) {
+      console.error('CSV export error:', err);
+      setCsvProgress('idle');
+      alert(`CSV export failed: ${err?.message || err}`);
+      return;
+    }
 
     // Stage 3: Download ready
     setCsvProgress('ready');
@@ -256,7 +264,14 @@ export const ExportView: React.FC<ExportViewProps> = ({
         ? `Filtered_${csbFilteredType}`
         : 'Custom_Range';
 
-    downloadCsbFile(csbSelectedData.feedsToExport, channel || undefined, suffix || undefined);
+    try {
+      await downloadCsbFile(csbSelectedData.feedsToExport, channel || undefined, suffix || undefined);
+    } catch (err: any) {
+      console.error('CSB export error:', err);
+      setCsbProgress('idle');
+      alert(`CSB export failed: ${err?.message || err}`);
+      return;
+    }
 
     // Stage 3: Download ready
     setCsbProgress('ready');
@@ -287,12 +302,14 @@ export const ExportView: React.FC<ExportViewProps> = ({
       setPdfProgress('building');
       await new Promise(r => setTimeout(r, 500));
 
-      // Build document
+      // Build document — statistics are computed for exactly the exported subset
+      const subset = pdfSelectedData.feedsToExport;
+      const isFullDataset = subset === feeds;
       await generatePdfReport(
-        pdfSelectedData.feedsToExport,
+        subset,
         channel || undefined,
-        stats,
-        samplingInfo,
+        isFullDataset ? stats : calculateAllStats(subset, channels),
+        isFullDataset ? samplingInfo : deriveSamplingInformation(subset),
         {
           title: pdfTitle,
           authorOrFacility: pdfLabName,

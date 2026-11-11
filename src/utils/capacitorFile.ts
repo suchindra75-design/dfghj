@@ -3,79 +3,59 @@ import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 
 /**
- * Saves a file to the app's internal data directory and triggers the native share sheet.
- * Supports text (CSV, CSB) and binary (PDF via base64) content.
+ * Saves a file to the app's cache directory and opens the native share sheet.
  *
- * @param content   The file content as a string. For binary files (e.g., PDF) provide a base64 string without data URI prefix.
- * @param filename  Desired filename including extension.
- * @param mimeType  MIME type of the file (e.g., 'text/csv', 'application/pdf').
+ * Content is written as UTF-8 text unless `options.base64` is set, in which
+ * case it must be base64 (an optional data-URI prefix is stripped). Text vs
+ * binary is decided explicitly, never inferred from the MIME type — CSB files
+ * are plain text even though they use application/octet-stream.
+ *
+ * Errors are thrown to the caller (which is responsible for showing them);
+ * a user-cancelled share sheet is not treated as an error.
  */
 export async function saveAndShareFile(
   content: string,
   filename: string,
   mimeType: string,
+  options: { base64?: boolean } = {},
 ): Promise<void> {
   if (Capacitor.getPlatform() === 'web') {
     // Web fallback handled by callers.
     return;
   }
 
-  // Use the app's internal cache directory for temporary export files.
   const directory = Directory.Cache;
-  const path = filename; // No subfolders needed.
+  const path = filename;
 
-  // Determine encoding: omit for binary (PDF) – Capacitor assumes base64 when no encoding is set.
-  // Determine if content is textual or binary (PDF base64). For PDFs, strip optional data URI prefix.
-  const isText = mimeType.startsWith('text/') || mimeType === 'application/csv' || mimeType === 'application/csb';
-  let dataToWrite = content;
-  if (!isText && typeof content === 'string' && content.startsWith('data:')) {
-    // Remove data URI prefix (e.g., "data:application/pdf;base64,")
+  let data = content;
+  if (options.base64 && content.startsWith('data:')) {
     const commaIndex = content.indexOf(',');
-    if (commaIndex !== -1) {
-      dataToWrite = content.substring(commaIndex + 1);
-    }
+    if (commaIndex !== -1) data = content.substring(commaIndex + 1);
   }
-  const encoding = isText ? Encoding.UTF8 : undefined;
 
-  console.log('[CapacitorFile] Writing file', { path, mimeType, encoding: encoding ?? 'default (base64)' });
   try {
     await Filesystem.writeFile({
       path,
-      data: dataToWrite,
+      data,
       directory,
-      encoding,
+      encoding: options.base64 ? undefined : Encoding.UTF8,
     });
-    console.log('[CapacitorFile] writeFile success');
   } catch (e) {
-    console.error('[CapacitorFile] writeFile error', e);
-    window.alert(`Error saving file ${filename}: ${e}`);
-    throw e;
+    throw new Error(`Could not save ${filename} (${mimeType}): ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Retrieve shareable URI.
-  let uriResult:
-    | { uri: string }
-    | undefined;
+  let uri: string;
   try {
-    uriResult = await Filesystem.getUri({ path, directory });
-    console.log('[CapacitorFile] getUri result', uriResult);
+    uri = (await Filesystem.getUri({ path, directory })).uri;
   } catch (e) {
-    console.error('[CapacitorFile] getUri error', e);
-    window.alert(`Error accessing file URI for ${filename}: ${e}`);
-    throw e;
+    throw new Error(`Could not locate saved file ${filename}: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   try {
-    console.log('[CapacitorFile] Sharing file', uriResult?.uri);
-    await Share.share({
-      title: filename,
-      url: uriResult?.uri,
-      dialogTitle: 'Share exported file',
-    });
-    console.log('[CapacitorFile] Share.success');
+    await Share.share({ title: filename, url: uri, dialogTitle: 'Share exported file' });
   } catch (e) {
-    console.error('[CapacitorFile] Share error', e);
-    window.alert(`Error sharing file ${filename}: ${e}`);
-    throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/cancel/i.test(msg)) return; // user dismissed the share sheet
+    throw new Error(`Could not share ${filename}: ${msg}`);
   }
 }

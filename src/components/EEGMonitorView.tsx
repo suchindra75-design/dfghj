@@ -61,10 +61,6 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
     : windowSamples === 0 ? feeds : feeds.slice(-windowSamples);
   const latestFeed = activeFeeds.length > 0 ? activeFeeds[activeFeeds.length - 1] : null;
 
-  if (isBle) {
-    console.log(`[BLE DIAG] EEGMonitorView rendering: dataSource=${dataSource} | bleFeeds=${bleFeeds.length} | displayFeeds=${displayFeeds.length}`);
-  }
-
   return (
     <div id="eeg-monitor-view" className="space-y-4">
       {/* Phase 1 BLE connection controls (Bluetooth source only) */}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { ThingSpeakFeedItem, ChannelFieldDefinition, ThingSpeakChannel, TimeDisplayMode } from '../types';
 import { formatDateTime } from '../utils/eegCalculations';
-import { localDatetimeToUtcIso } from '../utils/timezoneUtils';
+import { localDatetimeToUtcIso, localDatetimeEndToUtcMs } from '../utils/timezoneUtils';
 import {
   Search,
   ArrowUpDown,
@@ -111,8 +111,7 @@ export const DataTable: React.FC<DataTableProps> = ({
       }
     }
     if (customEnd) {
-      const endUtcIso = localDatetimeToUtcIso(customEnd);
-      const endTime = new Date(endUtcIso).getTime();
+      const endTime = localDatetimeEndToUtcMs(customEnd);
       if (!isNaN(endTime)) {
         result = result.filter(item => new Date(item.created_at).getTime() <= endTime);
       }
@@ -660,7 +659,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                           {item.field3}
                         </span>
                       ) : (
-                        <span className="text-[#94A3B8] text-[11px]">{item.field3 ?? '0'}</span>
+                        <span className="text-[#94A3B8] text-[11px]">{item.field3 ?? '—'}</span>
                       )}
                     </td>
 
@@ -672,7 +671,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                           <span>{item.field4}</span>
                         </span>
                       ) : (
-                        <span className="text-[#94A3B8] text-[11px]">{item.field4 ?? '0'}</span>
+                        <span className="text-[#94A3B8] text-[11px]">{item.field4 ?? '—'}</span>
                       )}
                     </td>
 

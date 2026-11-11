@@ -66,5 +66,7 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Brainmatrix uses Bluetooth to stream live EEG/EOG data from your BioAmp_Sleep sensor.</string>
 </dict>
 </plist>

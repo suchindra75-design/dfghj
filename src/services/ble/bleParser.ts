@@ -3,6 +3,7 @@
  *
  * Payload format (UTF-8 text per notification):
  *   EEG,EOG;EEG,EOG;EEG,EOG;EEG,EOG
+ * Values may be integers or decimals; ';' and line breaks are both pair separators.
  * Example:
  *   12,-3;15,-2;18,1;14,4
  *
@@ -25,11 +26,13 @@ export interface BleEegPair {
   eog: number;
 }
 
-const PAIR_RE = /^-?\d+,-?\d+$/;
+// Integers or decimals (optionally with exponent), e.g. "12,-3", "12.50,-3.1", "1e2,-4".
+const NUM = '[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?';
+const PAIR_RE = new RegExp(`^${NUM}\\s*,\\s*${NUM}$`);
 const MAX_CARRY_CHARS = 4096;
 
 function parseToken(token: string): BleEegPair | null {
-  const t = token.trim().replace(/[\r\n]+/g, '');
+  const t = token.trim();
   if (t === '' || !PAIR_RE.test(t)) return null;
   const comma = t.indexOf(',');
   const eeg = Number(t.slice(0, comma));
@@ -76,7 +79,8 @@ export class BioAmpBleParser {
   /** Push already-decoded text (also used by tests). */
   pushText(chunk: string): BleEegPair[] {
     if (!chunk) return [];
-    this.carry += chunk;
+    // Newline-terminated firmware ("EEG,EOG\\n") is framed exactly like ';'.
+    this.carry += chunk.replace(/\r\n|\r|\n/g, ';');
 
     // Overflow guard: drop oldest data rather than growing forever.
     if (this.carry.length > MAX_CARRY_CHARS) {

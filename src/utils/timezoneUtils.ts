@@ -43,6 +43,19 @@ export function localDatetimeToUtcIso(localDatetimeStr: string): string {
 }
 
 /**
+ * Inclusive upper bound (ms) for a minute-precision datetime-local *end* value.
+ * "14:05" covers every record up to 14:05:59.999, so the final minute of a
+ * recording is never silently dropped. Returns NaN for empty/invalid input.
+ */
+export function localDatetimeEndToUtcMs(localDatetimeStr: string): number {
+  if (!localDatetimeStr) return NaN;
+  const ms = new Date(localDatetimeStr).getTime();
+  if (isNaN(ms)) return NaN;
+  // datetime-local inputs carry seconds only when step < 60; widen minute-precision values.
+  return /T\d{2}:\d{2}$/.test(localDatetimeStr) ? ms + 59_999 : ms;
+}
+
+/**
  * Calculates the local "Today" range (00:00:00.000 to 23:59:59.999 local time),
  * and returns both the UTC ISO strings for API filtering and local datetime-local strings.
  */

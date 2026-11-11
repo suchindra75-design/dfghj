@@ -12,6 +12,7 @@ import { BleRingBuffer } from '../services/ble/bleRingBuffer';
 import {
   BIOAMP_DEVICE_NAME,
   bioAmpBleManager,
+  explainBleError,
   type BleConnectionState,
   type BleScanResult,
 } from '../services/ble/bleManager';
@@ -19,6 +20,8 @@ import type { BleEegPair } from '../services/ble/bleParser';
 
 /** Snapshot cadence: 10 UI updates/sec (never 250 setState/sec). */
 const SNAPSHOT_INTERVAL_MS = 100;
+/** Streaming this long with zero decoded samples triggers the no-data diagnostic. */
+const NO_DATA_GRACE_MS = 4000;
 
 export interface BleEegStatus {
   state: BleConnectionState;
@@ -29,6 +32,10 @@ export interface BleEegStatus {
   parseErrors: number;
   gaps: number;
   buffered: number;
+  mtu: number | null;
+  notifications: number;
+  /** Set when the link is up but no samples are decoding — explains why. */
+  noDataWarning: string | null;
 }
 
 /** Adapter boundary: BLE sample → ThingSpeakFeedItem-compatible object. */
@@ -55,6 +62,9 @@ export function useBleEeg() {
   const [scanResults, setScanResults] = useState<BleScanResult[]>([]);
   const [stats, setStats] = useState({ receivedHz: 0, sampleCount: 0, parseErrors: 0, gaps: 0, buffered: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [linkDiag, setLinkDiag] = useState({ mtu: null as number | null, notifications: 0, lastRawPreview: '' });
+  const [noDataWarning, setNoDataWarning] = useState<string | null>(null);
+  const streamingSinceRef = useRef<number | null>(null);
 
   // Wire manager events once + run the 10 Hz snapshot loop.
   useEffect(() => {
@@ -62,13 +72,11 @@ export function useBleEeg() {
 
     bioAmpBleManager.setEvents({
       onPairs: (pairs: BleEegPair[], receivedAtMs: number) => {
-        if (pairs.length > 0) {
-          console.log(`[BLE DIAG] useBleEeg.onPairs received ${pairs.length} samples. Pushing to ring buffer.`);
-        }
         buffer.pushPairs(pairs, receivedAtMs);
       },
       onState: (state, message) => {
-        console.log(`[BLE DIAG] useBleEeg.onState: ${state} (${message ?? ''})`);
+        streamingSinceRef.current = state === 'streaming' ? (streamingSinceRef.current ?? Date.now()) : null;
+        if (state !== 'streaming') setNoDataWarning(null);
         setBleState(state);
         setStatusMessage(message);
         if (state === 'scanning' || state === 'idle') {
@@ -95,12 +103,25 @@ export function useBleEeg() {
             prev.length === snap.length) {
           return prev; // no change → skip re-render
         }
-        if (snap.length > 0) {
-          console.log(`[BLE DIAG] useBleEeg setting bleFeeds count: ${snap.length}`);
-        }
         return snap.map(s => bleSampleToFeedItem(s.seq, s.tMs, s.eeg, s.eog));
       });
       const bs = buffer.getStats();
+
+      const diag = bioAmpBleManager.getLinkDiagnostics();
+      setLinkDiag(prev =>
+        prev.mtu === diag.mtu && prev.notifications === diag.notifications && prev.lastRawPreview === diag.lastRawPreview
+          ? prev
+          : diag
+      );
+      const since = streamingSinceRef.current;
+      let warning: string | null = null;
+      if (since !== null && bs.sampleCount === 0 && Date.now() - since > NO_DATA_GRACE_MS) {
+        warning =
+          diag.notifications === 0
+            ? 'Connected and subscribed, but the mask has not sent any packets. Check that the firmware is streaming (and that the electrodes/sensor are active).'
+            : `Receiving packets (${diag.notifications}) but none decode as "EEG,EOG" pairs (parse errors: ${bioAmpBleManager.getParseErrors()}). Last packet: "${diag.lastRawPreview}"`;
+      }
+      setNoDataWarning(prev => (prev === warning ? prev : warning));
       setStats(prev => {
         if (prev.receivedHz === bs.receivedHz && prev.sampleCount === bs.sampleCount &&
             prev.gaps === bs.gaps && prev.buffered === bs.buffered &&
@@ -129,7 +150,7 @@ export function useBleEeg() {
     try {
       await bioAmpBleManager.startScan();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(explainBleError(err));
     }
   }, []);
 
@@ -179,6 +200,9 @@ export function useBleEeg() {
     parseErrors: stats.parseErrors,
     gaps: stats.gaps,
     buffered: stats.buffered,
+    mtu: linkDiag.mtu,
+    notifications: linkDiag.notifications,
+    noDataWarning,
   };
 
   return {

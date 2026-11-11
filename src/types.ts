@@ -66,7 +66,9 @@ export interface FeedsResponse {
   channel: ThingSpeakChannel;
   feeds: ThingSpeakFeedItem[];
   totalCount: number;
+  /** False when the server truncated history at its MAX_RECORDS limit. */
   isComplete: boolean;
+  maxRecords?: number;
   apiKeyConfigured: boolean;
   error?: string;
   fetchedAt: string;

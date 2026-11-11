@@ -46,7 +46,7 @@ export const BleConnectBar: React.FC<BleConnectBarProps> = ({ ble }) => {
           <span className="font-bold text-[#0F172A] tracking-tight">
             BLUETOOTH &bull; {BIOAMP_DEVICE_NAME} &bull; {stateLabel}
           </span>
-          {status.message && (
+          {status.message && status.state !== 'error' && (
             <span className="text-[#64748B] text-[11px] truncate max-w-[220px]">({status.message})</span>
           )}
         </div>
@@ -133,9 +133,21 @@ export const BleConnectBar: React.FC<BleConnectBarProps> = ({ ble }) => {
         </div>
       )}
 
-      {error && (
-        <div className="px-4 py-2 rounded-lg bg-rose-50 border border-rose-200 text-xs font-mono text-rose-800">
-          Bluetooth: {error}
+      {(error || (status.state === 'error' && status.message)) && (
+        <div className="px-4 py-2 rounded-lg bg-rose-50 border border-rose-200 text-xs font-mono text-rose-800 break-words">
+          Bluetooth: {error ?? status.message}
+        </div>
+      )}
+
+      {status.noDataWarning && (
+        <div className="px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs font-mono text-amber-900 break-words">
+          No data yet: {status.noDataWarning}
+        </div>
+      )}
+
+      {connected && (
+        <div className="px-4 text-[10px] font-mono text-[#94A3B8]">
+          Link: MTU {status.mtu ?? '—'} &bull; packets {status.notifications.toLocaleString()} &bull; parse errors {status.parseErrors}
         </div>
       )}
     </div>

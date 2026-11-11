@@ -27,6 +27,19 @@ import { EEGLoadingState } from './components/EEGLoadingState';
 import { Activity, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+const MAX_FEEDS_IN_MEMORY = 100_000;
+
+/** Exports are always chronological, independent of any on-screen sort order. */
+const chronological = (list: ThingSpeakFeedItem[]) => [...list].sort((a, b) => a.entry_id - b.entry_id);
+
+/** Surface async export failures instead of leaving unhandled rejections. */
+function reportExportFailure(what: string, task: Promise<unknown>) {
+  task.catch(err => {
+    console.error(`${what} failed:`, err);
+    window.alert(`${what} failed: ${err?.message || err}`);
+  });
+}
+
 const INITIAL_CHANNELS: ChannelFieldDefinition[] = [
   {
     fieldKey: 'field1',
@@ -168,9 +181,10 @@ export default function App() {
             if (last.entry_id === newFeed.entry_id) {
               return prev;
             }
-            // Append and cap at 8000 in memory
+            // Append; cap memory well above the server's MAX_RECORDS so polling
+            // never silently discards history the initial load returned.
             const updated = [...prev, newFeed];
-            return updated.length > 8000 ? updated.slice(-8000) : updated;
+            return updated.length > MAX_FEEDS_IN_MEMORY ? updated.slice(-MAX_FEEDS_IN_MEMORY) : updated;
           });
           setLastUpdated(newFeed.created_at);
         }
@@ -202,40 +216,43 @@ export default function App() {
   // Quick CSV export
   const handleQuickCsv = useCallback(() => {
     if (feeds.length === 0) return;
-    downloadCsvFile(feeds, channel || undefined);
+    reportExportFailure('CSV export', downloadCsvFile(feeds, channel || undefined));
   }, [feeds, channel]);
 
   // Quick CSB export
   const handleQuickCsb = useCallback(() => {
     if (feeds.length === 0) return;
-    downloadCsbFile(feeds, channel || undefined);
+    reportExportFailure('CSB export', downloadCsbFile(feeds, channel || undefined));
   }, [feeds, channel]);
 
   // Quick PDF export
   const handleQuickPdf = useCallback(() => {
     if (feeds.length === 0) return;
-    generatePdfReport(feeds, channel || undefined, stats, samplingInfo, {
-      title: 'EEG TELEMETRY SCIENTIFIC WORKSTATION REPORT',
-      authorOrFacility: 'ThingSpeak Channel 3469764 Stream',
-      notes: 'Automated telemetry synchronization and multi-channel signal statistics summary.',
-      timeDisplayMode,
-    });
+    reportExportFailure(
+      'PDF report',
+      generatePdfReport(feeds, channel || undefined, stats, samplingInfo, {
+        title: 'EEG TELEMETRY SCIENTIFIC WORKSTATION REPORT',
+        authorOrFacility: 'ThingSpeak Channel 3469764 Stream',
+        notes: 'Automated telemetry synchronization and multi-channel signal statistics summary.',
+        timeDisplayMode,
+      })
+    );
   }, [channel, feeds, stats, samplingInfo, timeDisplayMode]);
 
-  // Filtered CSV download
+  // Filtered CSV download (always written oldest → newest, whatever the table sort)
   const handleDownloadCsvRange = useCallback(
     (filteredFeeds: ThingSpeakFeedItem[], label: string) => {
       const sanitized = label.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      downloadCsvFile(filteredFeeds, channel || undefined, sanitized);
+      reportExportFailure('CSV export', downloadCsvFile(chronological(filteredFeeds), channel || undefined, sanitized));
     },
     [channel]
   );
 
-  // Filtered CSB download
+  // Filtered CSB download (always written oldest → newest, whatever the table sort)
   const handleDownloadCsbRange = useCallback(
     (filteredFeeds: ThingSpeakFeedItem[], label: string) => {
       const sanitized = label.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      downloadCsbFile(filteredFeeds, channel || undefined, sanitized);
+      reportExportFailure('CSB export', downloadCsbFile(chronological(filteredFeeds), channel || undefined, sanitized));
     },
     [channel]
   );
