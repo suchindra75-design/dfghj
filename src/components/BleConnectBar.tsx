@@ -21,9 +21,9 @@ export const BleConnectBar: React.FC<BleConnectBarProps> = ({ ble }) => {
   const scanning = status.state === 'scanning';
   const stateLabel =
     status.state === 'streaming' ? 'Streaming' :
-    status.state === 'connected' ? 'Connected' :
+    status.state === 'connected' ? (status.message?.startsWith('Starting') ? status.message : 'Setting up stream…') :
     status.state === 'scanning' ? 'Scanning…' :
-    status.state === 'connecting' ? (status.message?.startsWith('Retrying') ? status.message : 'Connecting…') :
+    status.state === 'connecting' ? (status.message?.startsWith('Reconnecting') ? status.message : 'Connecting…') :
     status.state === 'disconnecting' ? 'Disconnecting…' :
     status.state === 'error' ? 'Needs attention' : 'Not connected';
 

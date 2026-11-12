@@ -24,7 +24,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
       aria-label="Main navigation"
       className="md:hidden fixed inset-x-0 bottom-0 z-40 px-3 pb-safe select-none pointer-events-none"
     >
-      <div className="glass pointer-events-auto mb-2 flex items-center justify-between h-16 px-1.5 rounded-2xl ring-1 ring-[#0F172A]/[0.07] shadow-lg">
+      <div className="glass !bg-white/[0.93] pointer-events-auto mb-2 flex items-center justify-between h-16 px-1.5 rounded-2xl ring-1 ring-[#0F172A]/[0.07] shadow-lg">
         {NAV_ITEMS.map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;

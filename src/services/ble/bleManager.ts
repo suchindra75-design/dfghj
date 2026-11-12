@@ -52,6 +52,13 @@ const POST_SCAN_SETTLE_MS = 400;
 const CONNECT_TIMEOUT_MS = 15000;
 const CONNECT_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 800;
+/** Let any peripheral-initiated connection-parameter update finish before the first GATT write. */
+const POST_CONNECT_SETTLE_MS = 600;
+/** CCCD (enable-notifications) write timeout; the plugin default of 5 s is too tight on busy links. */
+const NOTIFY_TIMEOUT_MS = 8000;
+const NOTIFY_ATTEMPTS = 2;
+/** After a CCCD timeout, data may still be flowing (the listener is already registered). */
+const NOTIFY_GRACE_MS = 1500;
 /** A link that drops within this window of connecting is reported as a connection failure. */
 const EARLY_DROP_WINDOW_MS = 10000;
 
@@ -60,7 +67,7 @@ const errText = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** Transient Android GATT failures that usually succeed on a retry. */
 function isTransientConnectError(err: unknown): boolean {
-  return /status (133|62|8|34|257)\b|GATT_ERROR|GATT_CONN_FAIL_ESTABLISH|GATT_CONN_TIMEOUT|LMP_TIMEOUT|Connection timeout/i.test(errText(err));
+  return /status (133|62|8|34|257)\b|GATT_ERROR|GATT_CONN_FAIL_ESTABLISH|GATT_CONN_TIMEOUT|LMP_TIMEOUT|Connection timeout|notification timeout/i.test(errText(err));
 }
 
 /** Turns plugin/Android status text into an actionable message. */
@@ -74,6 +81,7 @@ export function explainBleError(err: unknown): string {
     [/status 62\b|FAIL_ESTABLISH/i, 'Connection could not be established — the device stopped advertising or is connected elsewhere.'],
     [/status (?:code )?(5|15|137)\b|auth|bond|encrypt/i, 'The device requires pairing/encryption. Pair it in Android Bluetooth settings or disable security in the firmware.'],
     [/Characteristic not found/i, 'The device does not expose the expected data characteristic (6e400003…). The firmware UUIDs may differ.'],
+    [/notification timeout/i, 'The mask did not confirm the request to start streaming, even after retries. Power-cycle the mask, toggle phone Bluetooth off/on, and connect again.'],
     [/Setting notification/i, 'Enabling notifications on the data characteristic failed.'],
     [/permission|not allowed|denied/i, 'Bluetooth permission was denied. Allow "Nearby devices" for this app in Android settings.'],
     [/disabled|not enabled|turned off/i, 'Bluetooth is turned off on this phone.'],
@@ -232,8 +240,9 @@ export class BioAmpBleManager {
       } catch (err) {
         lastErr = err;
         console.warn(`[BLE] connect attempt ${attempt}/${CONNECT_ATTEMPTS} failed: ${errText(err)}`);
-        if (attempt < CONNECT_ATTEMPTS && isTransientConnectError(err)) {
-          this.emitState('connecting', `Retrying (${attempt + 1}/${CONNECT_ATTEMPTS})…`);
+        const maxAttempts = /notification timeout/i.test(errText(err)) ? 2 : CONNECT_ATTEMPTS;
+        if (attempt < maxAttempts && isTransientConnectError(err)) {
+          this.emitState('connecting', `Reconnecting (${attempt + 1}/${maxAttempts})…`);
           await sleep(RETRY_DELAY_MS * attempt);
           continue;
         }
@@ -282,8 +291,6 @@ export class BioAmpBleManager {
       }
 
       if (Capacitor.getPlatform() === 'android') {
-        // 256 Hz text streaming needs short connection intervals; MTU is negotiated by the plugin.
-        await BleClient.requestConnectionPriority(deviceId, ConnectionPriority.CONNECTION_PRIORITY_HIGH).catch(() => undefined);
         this.mtu = await BleClient.getMtu(deviceId).catch(() => null);
         if (this.mtu !== null && this.mtu < 50) {
           console.warn(`[BLE] Negotiated MTU is only ${this.mtu}; notifications may be truncated by the firmware.`);
@@ -291,7 +298,21 @@ export class BioAmpBleManager {
       }
 
       this.emitState('connected', this.mtu ? `MTU ${this.mtu}` : undefined);
+      // Give the link a moment to settle: a GATT write issued while the peripheral is
+      // renegotiating connection parameters is a classic cause of CCCD write timeouts.
+      await sleep(POST_CONNECT_SETTLE_MS);
+      if (this.deviceId !== deviceId) throw new Error('Not connected to device (link dropped during setup).');
       await this.subscribe();
+
+      if (Capacitor.getPlatform() === 'android') {
+        // Faster connection interval for 256 Hz streaming — only once notifications are on,
+        // so the parameter update can never collide with the CCCD write.
+        setTimeout(() => {
+          if (this.deviceId === deviceId) {
+            void BleClient.requestConnectionPriority(deviceId, ConnectionPriority.CONNECTION_PRIORITY_HIGH).catch(() => undefined);
+          }
+        }, 500);
+      }
     } catch (err) {
       // Connected but failed later: release the link so it isn't leaked or left half-open.
       this.notifying = false;
@@ -319,12 +340,41 @@ export class BioAmpBleManager {
     if (!this.deviceId) throw new Error('No device connected');
     if (this.notifying) return; // duplicate-subscription guard
 
-    await BleClient.startNotifications(
-      this.deviceId,
-      BIOAMP_SERVICE_UUID,
-      BIOAMP_DATA_CHAR_UUID,
-      (value: DataView) => this.handleNotification(value)
-    );
+    const deviceId = this.deviceId;
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= NOTIFY_ATTEMPTS; attempt++) {
+      const before = this.totalNotifications;
+      try {
+        await BleClient.startNotifications(
+          deviceId,
+          BIOAMP_SERVICE_UUID,
+          BIOAMP_DATA_CHAR_UUID,
+          (value: DataView) => this.handleNotification(value),
+          { timeout: NOTIFY_TIMEOUT_MS }
+        );
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (this.deviceId !== deviceId) throw err; // link is gone
+        // Android already enabled local delivery before writing the CCCD, and the JS
+        // listener stays registered — if packets are arriving, the stream works and only
+        // the confirmation was lost. Keep the link instead of tearing it down.
+        if (this.totalNotifications === before) await sleep(NOTIFY_GRACE_MS);
+        if (this.totalNotifications > before) {
+          console.warn(`[BLE] CCCD confirmation failed (${errText(err)}) but data is flowing — continuing.`);
+          lastErr = null;
+          break;
+        }
+        console.warn(`[BLE] enable notifications attempt ${attempt}/${NOTIFY_ATTEMPTS} failed: ${errText(err)}`);
+        if (attempt < NOTIFY_ATTEMPTS) {
+          this.emitState('connected', 'Starting data stream (retry)…');
+          await sleep(400);
+        }
+      }
+    }
+    if (lastErr) throw lastErr;
+
     this.notifying = true;
     this.startDiagTimer();
     this.emitState('streaming', this.mtu ? `MTU ${this.mtu}` : undefined);

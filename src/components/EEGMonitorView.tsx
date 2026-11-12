@@ -77,9 +77,16 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
     d.sort((x, y) => x - y);
     return d[Math.floor(d.length / 2)];
   })();
+  const bleState = ble?.status.state ?? 'idle';
   const statusTitle = isBle
     ? ble?.isStreaming
       ? 'Streaming from BioAmp_Sleep'
+      : bleState === 'connecting' || bleState === 'connected'
+      ? 'Connecting to the mask…'
+      : bleState === 'scanning'
+      ? 'Scanning for the mask…'
+      : bleState === 'error'
+      ? 'Connection problem'
       : 'Bluetooth idle'
     : isPolling
     ? 'Live cloud stream'
@@ -87,6 +94,10 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
   const statusDetail = isBle
     ? ble?.isStreaming
       ? `${ble.status.receivedHz > 0 ? `~${ble.status.receivedHz.toFixed(0)} Hz` : 'Waiting for samples'} · ${ble.status.sampleCount.toLocaleString()} samples`
+      : bleState === 'connecting' || bleState === 'connected'
+      ? ble?.status.message ?? 'Setting up the data stream'
+      : bleState === 'error'
+      ? 'See the message in the Bluetooth card above'
       : 'Scan and connect to the mask to start streaming'
     : `${cadenceSec ? `One sample every ~${cadenceSec.toFixed(1)}s` : 'ThingSpeak channel'} · latest #${latestFeed?.entry_id ?? '—'}`;
 
@@ -184,6 +195,7 @@ export const EEGMonitorView: React.FC<EEGMonitorViewProps> = ({
       {/* 2. THE WAVEFORM CENTERPIECE (Full-Width, High-Precision Canvas Workspace) */}
       <div className="w-full">
         <EEGWaveformCanvas
+          key={dataSource /* fresh zoom/hover state per source */}
           feeds={displayFeeds}
           channels={channels}
           height={580}
